@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>PaperTrail</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PaperTrail">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUGFwZXJUcmFpbCIsInNob3J0X25hbWUiOiJQYXBlclRyYWlsIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2ZmZmZmZiIsInRoZW1lX2NvbG9yIjoiIzRmNmJmZiIsInN0YXJ0X3VybCI6Ii4iLCJvcmllbnRhdGlvbiI6InBvcnRyYWl0In0=">
+<script src="https://alcdn.msauth.net/browser/3.7.1/js/msal-browser.min.js"></script>
+<script src="https://js.live.net/v7.2/OneDrive.js"></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg2: #f4f4f6;
+    --text: #1c1c1e;
+    --text2: #6b6b70;
+    --text3: #a0a0a5;
+    --border: #e3e3e6;
+    --accent: #4f6bff;
+    --red: #ff3b30;
+    --green: #2e9e4a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --bg2: #1c1c1e;
+      --text: #f5f5f7;
+      --text2: #98989d;
+      --text3: #6b6b70;
+      --border: #2c2c2e;
+      --accent: #7b8fff;
+      --red: #ff453a;
+      --green: #4ade9e;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+
+  /* Top bar: account switcher + search */
+  .topbar {
+    flex: 0 0 auto;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .account-select {
+    flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px; font-weight: 500;
+    border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+  }
+  .icon-btn-sm {
+    height: 34px; width: 34px; flex: 0 0 auto; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--text); display: flex; align-items: center;
+    justify-content: center; cursor: pointer; font-size: 16px;
+  }
+  .search-row { display: flex; gap: 6px; }
+  .search-row input[type="text"] {
+    flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg2);
+    color: var(--text); padding: 9px 10px; font-size: 14px; outline: none;
+  }
+  .tag-filter-btn {
+    flex: 0 0 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; border: 1px solid var(--border); background: var(--bg2);
+    color: var(--text2); padding: 9px 10px; font-size: 13px; cursor: pointer;
+  }
+  .tag-filter-btn.active { color: var(--accent); border-color: var(--accent); }
+
+  /* Note list */
+  .content { flex: 1 1 auto; overflow-y: auto; padding: 8px 16px; -webkit-overflow-scrolling: touch; }
+  .note-row {
+    position: relative; overflow: hidden; margin-bottom: 6px;
+  }
+  .note-delete-bg {
+    position: absolute; inset: 0; background: var(--red); color: #fff;
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 20px; font-size: 14px; font-weight: 500;
+  }
+  .note-card {
+    background: var(--bg2); padding: 10px 14px; position: relative; z-index: 1;
+    transition: transform 0.2s; cursor: default;
+  }
+  .note-filename { font-size: 15px; font-weight: 500; color: var(--text); word-break: break-word; }
+  .note-meta-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+  .note-tag {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--accent); background: rgba(79,107,255,0.12); padding: 2px 7px;
+  }
+  .note-path { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .note-link {
+    font-size: 12px; color: var(--accent); text-decoration: none; flex: 0 0 auto;
+  }
+  .note-delete-hover {
+    display: none; position: absolute; top: 10px; right: 10px;
+    background: none; border: none; color: var(--text3); cursor: pointer; font-size: 16px; z-index: 2;
+  }
+  @media (hover: hover) { .note-row:hover .note-delete-hover { display: block; } }
+  .empty-state { color: var(--text3); font-size: 15px; padding: 60px 20px; text-align: center; }
+
+  /* Bottom bar */
+  .bottom-icons {
+    flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+    padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border); padding-top: 10px;
+  }
+  .icon-btn {
+    height: 52px; border: 1px solid var(--border); padding: 0; background: var(--bg);
+    color: var(--text); display: flex; flex-direction: column; align-items: center;
+    justify-content: center; font-size: 12px; font-weight: 500; gap: 2px; cursor: pointer;
+  }
+  .icon-btn svg { pointer-events: none; }
+  .icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* Sheets */
+  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 20; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; max-height: 82vh; z-index: 21;
+    background: var(--bg); box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex: 0 0 auto; }
+  .sheet-header button { border: none; background: none; font-size: 16px; cursor: pointer; padding: 6px; color: var(--text2); }
+  .sheet-title { font-size: 15px; font-weight: 600; }
+  .sheet-header-spacer { width: 28px; display: inline-block; }
+  .sheet-body { overflow-y: auto; flex: 1 1 auto; margin: 0 -16px; padding: 0 16px; }
+  .sheet input[type="text"], .sheet input[type="password"] {
+    width: 100%; border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+    padding: 10px; font-size: 14px; outline: none; margin-bottom: 8px;
+  }
+  .sheet label { display: block; font-size: 13px; color: var(--text2); margin: 10px 0 4px; }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; flex: 0 0 auto; }
+  .btn-row button {
+    flex: 1; padding: 10px; border: none; font-size: 14px; font-weight: 500; cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--bg2); color: var(--text2); border: 1px solid var(--border) !important; }
+  .btn-danger { background: var(--red); color: #fff; }
+
+  .settings-row {
+    height: 50px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4px; font-size: 15px; font-weight: 500; color: var(--text);
+    border-bottom: 0.5px solid var(--border); cursor: pointer;
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row .chevron { color: var(--text3); font-size: 16px; }
+  .settings-note { font-size: 12px; color: var(--text3); margin-top: 8px; }
+
+  .list-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 0; border-bottom: 0.5px solid var(--border);
+  }
+  .list-row:last-child { border-bottom: none; }
+  .list-row-label { font-size: 14px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-row-sub { font-size: 12px; color: var(--text3); }
+  .list-row-remove { border: none; background: none; color: var(--red); font-size: 13px; cursor: pointer; flex: 0 0 auto; }
+  .list-row-blocked { color: var(--text3); font-size: 12px; }
+
+  .picker-row {
+    padding: 14px 8px; font-size: 15px; color: var(--text); background: var(--bg);
+    border-bottom: 0.5px solid var(--border); cursor: pointer; display: flex; align-items: center; gap: 8px;
+  }
+  .picker-row:last-child { border-bottom: none; }
+  .picker-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; }
+
+  .tag-choice-grid { display: flex; flex-direction: column; gap: 6px; }
+  .tag-choice {
+    padding: 12px 10px; border: 1px solid var(--border); background: var(--bg2);
+    color: var(--text); font-size: 14px; cursor: pointer;
+  }
+  .tag-choice.selected { border-color: var(--accent); background: rgba(79,107,255,0.12); color: var(--accent); font-weight: 600; }
+
+  .status-msg { font-size: 13px; padding: 10px; margin-bottom: 8px; }
+  .status-msg.info { background: var(--bg2); color: var(--text2); }
+  .status-msg.error { background: rgba(255,59,48,0.12); color: var(--red); }
+  .status-msg.success { background: rgba(46,158,74,0.12); color: var(--green); }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="account-row">
+      <select class="account-select" id="accountSelect"></select>
+      <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
+    </div>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="Search filenames…">
+      <button class="tag-filter-btn" id="tagFilterBtn">Tags</button>
+    </div>
+  </div>
+
+  <main class="content" id="content"></main>
+
+  <div class="bottom-icons">
+    <button class="icon-btn" id="captureBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add
+    </button>
+    <button class="icon-btn" id="syncBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Sync
+    </button>
+    <button class="icon-btn" id="manageBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Manage
+    </button>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop" hidden></div>
+
+<!-- Tag filter sheet -->
+<div class="sheet" id="tagFilterSheet" hidden style="max-height:60vh;">
+  <div class="sheet-header"><span></span><span class="sheet-title">Filter by tag</span><button id="tagFilterClose">&#10005;</button></div>
+  <div class="sheet-body" id="tagFilterList"></div>
+  <div class="btn-row"><button class="btn-secondary" id="tagFilterClearBtn">Clear</button></div>
+</div>
+
+<!-- Capture: tag choice sheet -->
+<div class="sheet" id="captureTagSheet" hidden style="max-height:70vh;">
+  <div class="sheet-header"><span></span><span class="sheet-title" id="captureTagTitle">Choose a tag</span><button id="captureTagClose">&#10005;</button></div>
+  <div class="status-msg info" id="captureStatusMsg" hidden></div>
+  <div class="sheet-body"><div class="tag-choice-grid" id="captureTagGrid"></div></div>
+</div>
+
+<!-- Settings home -->
+<div class="sheet" id="settingsHomeSheet" hidden style="max-height:60vh;">
+  <div class="sheet-header"><span class="sheet-header-spacer"></span><span class="sheet-title">Manage</span><button id="settingsHomeClose">&#10005;</button></div>
+  <div class="sheet-body">
+    <div class="settings-row" data-target="trackedFolders">Tracked folders<span class="chevron">&#8250;</span></div>
+    <div class="settings-row" data-target="tags">Tags<span class="chevron">&#8250;</span></div>
+    <div class="settings-row" data-target="accounts">Accounts &amp; connections<span class="chevron">&#8250;</span></div>
+  </div>
+</div>
+
+<!-- Tracked folders -->
+<div class="sheet" id="trackedFoldersSheet" hidden style="max-height:70vh;">
+  <div class="sheet-header"><button id="trackedFoldersBack">&#8249;</button><span class="sheet-title">Tracked Folders</span><span class="sheet-header-spacer"></span></div>
+  <div class="btn-row"><button class="btn-primary" id="addFolderBtn">Add folder…</button></div>
+  <div class="sheet-body" id="trackedFoldersList"></div>
+</div>
+
+<!-- Tags -->
+<div class="sheet" id="tagsSheet" hidden style="max-height:70vh;">
+  <div class="sheet-header"><button id="tagsBack">&#8249;</button><span class="sheet-title">Tags</span><span class="sheet-header-spacer"></span></div>
+  <div class="sheet-body" id="tagsList"></div>
+</div>
+
+<!-- Reassign-then-delete tag sheet -->
+<div class="sheet" id="reassignSheet" hidden style="max-height:70vh;">
+  <div class="sheet-header"><span></span><span class="sheet-title" id="reassignTitle">Reassign notes</span><button id="reassignClose">&#10005;</button></div>
+  <div class="sheet-body"><div class="tag-choice-grid" id="reassignGrid"></div></div>
+</div>
+
+<!-- Accounts & connections (Azure client id, add/switch accounts, GitHub sync config) -->
+<div class="sheet" id="accountsSheet" hidden style="max-height:80vh;">
+  <div class="sheet-header"><button id="accountsBack">&#8249;</button><span class="sheet-title">Accounts &amp; Connections</span><span class="sheet-header-spacer"></span></div>
+  <div class="sheet-body">
+    <label>Azure app Client ID (one-time setup)</label>
+    <input type="text" id="azureClientId" placeholder="00000000-0000-0000-0000-000000000000">
+    <div class="settings-note">Created once in the Azure Portal — SPA platform, redirect URI set to this page's URL, supports personal + org accounts.</div>
+
+    <label style="margin-top:16px;">Signed-in accounts</label>
+    <div id="accountsList"></div>
+    <div class="btn-row"><button class="btn-secondary" id="accountsAddBtn">Add account</button></div>
+
+    <label style="margin-top:16px;">GitHub owner</label>
+    <input type="text" id="ghOwner" placeholder="e.g. RonSIll">
+    <label>Repo name</label>
+    <input type="text" id="ghRepo" placeholder="e.g. papertrail">
+    <label>Personal access token</label>
+    <input type="password" id="ghPat" placeholder="github_pat_...">
+    <div class="btn-row"><button class="btn-primary" id="ghSaveBtn">Save connection settings</button></div>
+    <div class="settings-note" id="ghSyncNote"></div>
+  </div>
+</div>
+
+<!-- Generic confirm sheet -->
+<div class="sheet" id="confirmSheet" hidden style="max-height:220px;">
+  <div class="sheet-header"><span></span><button id="confirmClose">&#10005;</button></div>
+  <div class="note-filename" id="confirmText" style="margin-bottom:14px;"></div>
+  <div class="btn-row">
+    <button class="btn-danger" id="confirmYes">Delete</button>
+    <button class="btn-secondary" id="confirmNo">Cancel</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // =========================================================================
+  // Config & constants
+  // =========================================================================
+
+  // Personal-use, single Azure app registration (multitenant + personal
+  // accounts, "common" authority) covers both Ron's personal Microsoft
+  // account and, once he onboards it, the separate KellyVend business
+  // tenant — no second app registration needed unless that tenant's admin
+  // blocks external apps, in which case a per-account override could be
+  // added to LOCAL_CONFIG.accounts later.
+  var GRAPH_SCOPES = ["Files.Read"];
+  var LOCAL_CONFIG_KEY = "paperTrailLocalConfig"; // azureClientId, gh{owner,repo,pat,sha}, accounts[], activeAccountKey
+  var DATA_KEY = "paperTrailData"; // local cache of the synced JSON
+  var DATA_PATH = "data.json";
+
+  // Fixed per-account tag-source roots. Personal is decided; KellyVend is
+  // architected for but not onboarded — driveBaseUrl and root stay blank
+  // until Ron actually adds that account and fills this in via Accounts &
+  // Connections (not yet a built UI field — see Workflows to define).
+  var ACCOUNT_DEFAULTS = {
+    personal: {
+      label: "Personal",
+      tagRootPath: "Projects",
+      driveBaseUrl: "https://graph.microsoft.com/v1.0/me/drive"
+    }
+  };
+
+  // =========================================================================
+  // State
+  // =========================================================================
+  var localConfig = {
+    azureClientId: "",
+    gh: null, // { owner, repo, pat, sha }
+    accounts: [], // [{ key, label, homeAccountId, tagRootPath, driveBaseUrl }]
+    activeAccountKey: null
+  };
+
+  // data = { [accountKey]: { trackedFolders: [...], tags: [...], notes: [...] } }
+  // trackedFolder: { id (drive item id), name (== tag name for leaf folders),
+  //                  parentLabel (e.g. "912 Family" if this is an exposed
+  //                  child), deltaLink, path (folder path for display) }
+  // note: { id, filename, tag, webUrl, folderPath, driveItemId, capturedAt }
+  var data = {};
+
+  var msalApp = null;
+  var searchState = { text: "", tags: [] };
+  var pendingConfirm = null;
+
+  // =========================================================================
+  // DOM refs
+  // =========================================================================
+  var el = {};
+  function cacheEls() {
+    [
+      "accountSelect","addAccountBtn","searchInput","tagFilterBtn","content",
+      "captureBtn","syncBtn","manageBtn","backdrop",
+      "tagFilterSheet","tagFilterList","tagFilterClose","tagFilterClearBtn",
+      "captureTagSheet","captureTagTitle","captureTagGrid","captureTagClose","captureStatusMsg",
+      "settingsHomeSheet","settingsHomeClose",
+      "trackedFoldersSheet","trackedFoldersBack","trackedFoldersList","addFolderBtn",
+      "tagsSheet","tagsBack","tagsList",
+      "reassignSheet","reassignTitle","reassignGrid","reassignClose",
+      "accountsSheet","accountsBack","azureClientId","accountsList","accountsAddBtn",
+      "ghOwner","ghRepo","ghPat","ghSaveBtn","ghSyncNote",
+      "confirmSheet","confirmText","confirmYes","confirmNo","confirmClose"
+    ].forEach(function (id) { el[id] = document.getElementById(id); });
+  }
+
+  var ALL_SHEETS = [
+    "tagFilterSheet","captureTagSheet","settingsHomeSheet","trackedFoldersSheet",
+    "tagsSheet","reassignSheet","accountsSheet","confirmSheet"
+  ];
+  function openSheet(id) {
+    el.backdrop.hidden = false;
+    el[id].hidden = false;
+  }
+  function closeSheet(id) {
+    el[id].hidden = true;
+    var anyOpen = ALL_SHEETS.some(function (s) { return !el[s].hidden; });
+    if (!anyOpen) el.backdrop.hidden = true;
+  }
+  function closeAllSheets() {
+    ALL_SHEETS.forEach(function (s) { el[s].hidden = true; });
+    el.backdrop.hidden = true;
+  }
+
+  // =========================================================================
+  // Local persistence (config is local-only, never synced — it holds
+  // credentials; data.json is the synced note/tag/folder store)
+  // =========================================================================
+  function loadLocalConfig() {
+    try {
+      var raw = localStorage.getItem(LOCAL_CONFIG_KEY);
+      if (raw) localConfig = JSON.parse(raw);
+    } catch (e) { /* keep defaults */ }
+  }
+  function saveLocalConfig() {
+    localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(localConfig));
+  }
+  function loadLocalData() {
+    try {
+      var raw = localStorage.getItem(DATA_KEY);
+      data = raw ? JSON.parse(raw) : {};
+    } catch (e) { data = {}; }
+  }
+  function saveLocalData() {
+    localStorage.setItem(DATA_KEY, JSON.stringify(data));
+  }
+  function activeAccountData() {
+    var key = localConfig.activeAccountKey;
+    if (!key) return null;
+    if (!data[key]) data[key] = { trackedFolders: [], tags: [], notes: [] };
+    return data[key];
+  }
+  function activeAccountConfig() {
+    var key = localConfig.activeAccountKey;
+    return localConfig.accounts.find(function (a) { return a.key === key; }) || null;
+  }
+
+  // =========================================================================
+  // GitHub sync — same pattern as Task List (src/task-list.html ~L653-699):
+  // pull on load, push (debounced) after every change, PAT stored locally.
+  // =========================================================================
+  var pushTimer = null;
+  function ghApiUrl() {
+    return "https://api.github.com/repos/" + localConfig.gh.owner + "/" + localConfig.gh.repo + "/contents/" + DATA_PATH;
+  }
+  function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+  function b64decode(str) { return decodeURIComponent(escape(atob(str))); }
+
+  function ghPull(cb) {
+    if (!localConfig.gh) { if (cb) cb(); return; }
+    fetch(ghApiUrl(), { headers: { Authorization: "token " + localConfig.gh.pat } })
+      .then(function (res) {
+        if (res.status === 404) return null; // file doesn't exist yet — first run
+        if (!res.ok) throw new Error("pull failed");
+        return res.json();
+      })
+      .then(function (json) {
+        if (json) {
+          localConfig.gh.sha = json.sha;
+          saveLocalConfig();
+          data = JSON.parse(b64decode(json.content));
+          saveLocalData();
+        }
+        if (cb) cb();
+      })
+      .catch(function () { if (cb) cb(); }); // fall back silently to local cache
+  }
+
+  function ghPushNow() {
+    if (!localConfig.gh) return;
+    var body = {
+      message: "PaperTrail sync " + new Date().toISOString(),
+      content: b64encode(JSON.stringify(data)),
+      sha: localConfig.gh.sha || undefined
+    };
+    fetch(ghApiUrl(), {
+      method: "PUT",
+      headers: { Authorization: "token " + localConfig.gh.pat, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) throw new Error("push failed");
+      return res.json();
+    }).then(function (json) {
+      localConfig.gh.sha = json.content.sha;
+      saveLocalConfig();
+    }).catch(function () {
+      // Last-write-wins, no merge — same accepted risk as Task List (see
+      // project_brief.md "Workflows to define": concurrent multi-device
+      // writes). A failed/rejected push just leaves local ahead until the
+      // next successful sync.
+    });
+  }
+  function persistAndSync() {
+    saveLocalData();
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(ghPushNow, 500);
+  }
+
+  // =========================================================================
+  // MSAL / auth
+  // =========================================================================
+  function initMsal() {
+    if (!localConfig.azureClientId) return null;
+    if (msalApp) return msalApp;
+    msalApp = new msal.PublicClientApplication({
+      auth: {
+        clientId: localConfig.azureClientId,
+        authority: "https://login.microsoftonline.com/common",
+        redirectUri: window.location.href
+      },
+      cache: { cacheLocation: "localStorage" }
+    });
+    return msalApp;
+  }
+
+  function addAccountFlow() {
+    var app = initMsal();
+    if (!app) { alert("Set an Azure app Client ID under Manage → Accounts & Connections first."); return; }
+    app.loginPopup({ scopes: GRAPH_SCOPES }).then(function (result) {
+      var homeAccountId = result.account.homeAccountId;
+      var already = localConfig.accounts.find(function (a) { return a.homeAccountId === homeAccountId; });
+      if (!already) {
+        var key = localConfig.accounts.length === 0 ? "personal" : ("account" + localConfig.accounts.length);
+        var defaults = ACCOUNT_DEFAULTS[key] || {};
+        localConfig.accounts.push({
+          key: key,
+          label: defaults.label || result.account.username,
+          homeAccountId: homeAccountId,
+          tagRootPath: defaults.tagRootPath || "",
+          driveBaseUrl: defaults.driveBaseUrl || "https://graph.microsoft.com/v1.0/me/drive"
+        });
+        localConfig.activeAccountKey = key;
+      } else {
+        localConfig.activeAccountKey = already.key;
+      }
+      saveLocalConfig();
+      renderAccountSelect();
+      renderAccountsList();
+      render();
+    }).catch(function (err) {
+      alert("Sign-in failed: " + (err && err.message ? err.message : err));
+    });
+  }
+
+  function getTokenForActiveAccount() {
+    var app = initMsal();
+    var acctCfg = activeAccountConfig();
+    if (!app || !acctCfg) return Promise.reject(new Error("No active account"));
+    var msalAccount = app.getAccountByHomeId(acctCfg.homeAccountId);
+    if (!msalAccount) return Promise.reject(new Error("Account not found in MSAL cache"));
+    return app.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) {
+      return r.accessToken;
+    }).catch(function () {
+      return app.acquireTokenPopup({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) { return r.accessToken; });
+    });
+  }
+
+  // =========================================================================
+  // Graph helpers
+  // =========================================================================
+  function graphFetch(url, token) {
+    return fetch(url, { headers: { Authorization: "Bearer " + token } }).then(function (res) {
+      if (!res.ok) throw new Error("Graph request failed: " + res.status);
+      return res.json();
+    });
+  }
+
+  function listChildrenByPath(driveBaseUrl, path, token) {
+    var url = driveBaseUrl + "/root:/" + encodeURIComponentPath(path) + ":/children?$top=200";
+    return graphFetch(url, token).then(collectAllPages.bind(null, token));
+  }
+  function listChildrenById(driveBaseUrl, itemId, token) {
+    var url = driveBaseUrl + "/items/" + itemId + "/children?$top=200";
+    return graphFetch(url, token).then(collectAllPages.bind(null, token));
+  }
+  function collectAllPages(token, firstPage) {
+    var items = firstPage.value || [];
+    if (!firstPage["@odata.nextLink"]) return Promise.resolve(items);
+    return graphFetch(firstPage["@odata.nextLink"], token).then(function (next) {
+      return collectAllPages(token, next).then(function (rest) { return items.concat(rest); });
+    });
+  }
+  function encodeURIComponentPath(path) {
+    return path.split("/").map(encodeURIComponent).join("/");
+  }
+
+  // Recursively walks a folder (by drive item id) and returns every file
+  // (not subfolder) found at any depth, per the decided full-recursion rule.
+  function walkFolderRecursive(driveBaseUrl, folderId, token) {
+    return listChildrenById(driveBaseUrl, folderId, token).then(function (children) {
+      var files = children.filter(function (c) { return !c.folder; });
+      var subfolders = children.filter(function (c) { return c.folder; });
+      if (subfolders.length === 0) return files;
+      return Promise.all(subfolders.map(function (sf) {
+        return walkFolderRecursive(driveBaseUrl, sf.id, token);
+      })).then(function (nested) {
+        return nested.reduce(function (acc, arr) { return acc.concat(arr); }, files);
+      });
+    });
+  }
+
+  function deltaQuery(driveBaseUrl, folderId, token, deltaLink) {
+    var url = deltaLink || (driveBaseUrl + "/items/" + folderId + "/delta");
+    return graphFetch(url, token).then(function (page) { return collectDeltaPages(token, page, []); });
+  }
+  function collectDeltaPages(token, page, acc) {
+    acc = acc.concat(page.value || []);
+    if (page["@odata.nextLink"]) {
+      return graphFetch(page["@odata.nextLink"], token).then(function (next) { return collectDeltaPages(token, next, acc); });
+    }
+    return { items: acc, deltaLink: page["@odata.deltaLink"] };
+  }
+
+  // Folder-location breadcrumb: parentReference.path looks like
+  // "/drive/root:/Projects/910 Housing/Renovations" — strip everything
+  // through the tag-source root segment so neither "OneDrive" nor
+  // "Projects" (or whatever the root folder is named) ever show.
+  function folderBreadcrumb(parentPath, tagRootPath) {
+    if (!parentPath) return "";
+    var marker = "/" + tagRootPath;
+    var idx = parentPath.indexOf(marker);
+    if (idx === -1) return parentPath.replace(/^\/drive\/root:/, "");
+    var rest = parentPath.slice(idx + marker.length); // leading slash or empty
+    return rest.replace(/^\//, "").split("/").join(" / ");
+  }
+
+  // =========================================================================
+  // Tag-source-of-truth: enumerate candidate folders for adding to the
+  // tracked list. A folder that itself contains named subfolders exposes
+  // those subfolders as the choosable units instead of itself (the "912
+  // Family" routing rule) — detected live by checking for child folders.
+  // =========================================================================
+  function resolveAddableUnitsForFolder(driveBaseUrl, folderItem, token) {
+    return listChildrenById(driveBaseUrl, folderItem.id, token).then(function (children) {
+      var subfolders = children.filter(function (c) { return c.folder; });
+      if (subfolders.length === 0) {
+        return [{ id: folderItem.id, name: folderItem.name, path: folderItem.parentReference.path + "/" + folderItem.name }];
+      }
+      return subfolders.map(function (sf) {
+        return { id: sf.id, name: sf.name, path: (folderItem.parentReference.path + "/" + folderItem.name + "/" + sf.name) };
+      });
+    });
+  }
+
+  // =========================================================================
+  // Capture flow
+  // =========================================================================
+  function startCapture() {
+    var acctCfg = activeAccountConfig();
+    if (!acctCfg) { alert("Add and select an account first (Manage → Accounts & Connections)."); return; }
+    getTokenForActiveAccount().then(function (token) {
+      openOneDrivePicker(token, acctCfg);
+    }).catch(function (err) {
+      alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
+    });
+  }
+
+  function openOneDrivePicker(token, acctCfg) {
+    OneDrive.open({
+      clientId: localConfig.azureClientId,
+      action: "query",
+      multiSelect: true,
+      advanced: {
+        accessToken: token,
+        queryParameters: "select=id,name,webUrl,folder,parentReference"
+      },
+      success: function (result) {
+        handlePickerResult(result.value, acctCfg, token);
+      },
+      cancel: function () {},
+      error: function (e) { alert("Picker error: " + JSON.stringify(e)); }
+    });
+  }
+
+  function handlePickerResult(pickedItems, acctCfg, token) {
+    var driveBaseUrl = acctCfg.driveBaseUrl;
+    var fileTasks = [];
+    var folderPicks = pickedItems.filter(function (i) { return i.folder; });
+    var filePicks = pickedItems.filter(function (i) { return !i.folder; });
+
+    filePicks.forEach(function (f) { fileTasks.push(Promise.resolve({ file: f, sourceFolder: null })); });
+
+    var folderWalks = folderPicks.map(function (folderItem) {
+      return walkFolderRecursive(driveBaseUrl, folderItem.id, token).then(function (files) {
+        return { folderItem: folderItem, files: files };
+      });
+    });
+
+    Promise.all(folderWalks).then(function (walkedFolders) {
+      var totalCount = filePicks.length;
+      walkedFolders.forEach(function (w) { totalCount += w.files.length; });
+
+      if (totalCount === 0) { alert("No files found in the current selection."); return; }
+      var proceed = confirm(totalCount + " file" + (totalCount === 1 ? "" : "s") + " will be captured. Continue?");
+      if (!proceed) return;
+
+      showCaptureTagChoice(acctCfg, function (chosenTag) {
+        var allFileEntries = filePicks.map(function (f) { return { file: f, sourceFolder: null }; });
+        walkedFolders.forEach(function (w) {
+          w.files.forEach(function (f) { allFileEntries.push({ file: f, sourceFolder: w.folderItem }); });
+        });
+        createNotesFromFiles(allFileEntries, chosenTag, acctCfg);
+
+        // Register each picked folder into the tracked-folder list and seed
+        // its delta token immediately (must happen at capture time, not
+        // deferred to the first Sync click — see Workflows to define).
+        walkedFolders.forEach(function (w) {
+          deltaQuery(driveBaseUrl, w.folderItem.id, token, null).then(function (result) {
+            var acctData = data[acctCfg.key];
+            var already = acctData.trackedFolders.find(function (tf) { return tf.id === w.folderItem.id; });
+            if (!already) {
+              acctData.trackedFolders.push({
+                id: w.folderItem.id,
+                name: chosenTag,
+                path: w.folderItem.parentReference.path + "/" + w.folderItem.name,
+                deltaLink: result.deltaLink
+              });
+              persistAndSync();
+              renderTrackedFoldersList();
+            }
+          });
+        });
+      });
+    });
+  }
+
+  function showCaptureTagChoice(acctCfg, onChosen) {
+    var acctData = data[acctCfg.key];
+    var tags = acctData.trackedFolders.map(function (tf) { return tf.name; });
+    if (tags.length === 0) {
+      el.captureStatusMsg.textContent = "No tags yet — add a tracked folder under Manage first, or pick a folder that isn't tracked yet and it will register itself once tagged below.";
+      el.captureStatusMsg.hidden = false;
+    } else {
+      el.captureStatusMsg.hidden = true;
+    }
+    el.captureTagGrid.innerHTML = "";
+    var selected = null;
+    tags.forEach(function (t) {
+      var btn = document.createElement("div");
+      btn.className = "tag-choice";
+      btn.textContent = t;
+      btn.addEventListener("click", function () {
+        Array.prototype.forEach.call(el.captureTagGrid.children, function (c) { c.classList.remove("selected"); });
+        btn.classList.add("selected");
+        selected = t;
+      });
+      el.captureTagGrid.appendChild(btn);
+    });
+    var confirmBtn = document.createElement("button");
+    confirmBtn.className = "btn-primary";
+    confirmBtn.style.marginTop = "12px";
+    confirmBtn.style.width = "100%";
+    confirmBtn.style.padding = "12px";
+    confirmBtn.style.border = "none";
+    confirmBtn.textContent = "Use this tag";
+    confirmBtn.addEventListener("click", function () {
+      if (!selected) { alert("Pick a tag first."); return; }
+      closeSheet("captureTagSheet");
+      onChosen(selected);
+    });
+    el.captureTagGrid.appendChild(confirmBtn);
+    openSheet("captureTagSheet");
+  }
+
+  function createNotesFromFiles(fileEntries, tag, acctCfg) {
+    var acctData = data[acctCfg.key];
+    fileEntries.forEach(function (entry) {
+      var f = entry.file;
+      var already = acctData.notes.find(function (n) { return n.driveItemId === f.id; });
+      if (already) return; // avoid duplicates on re-capture of the same file
+      acctData.notes.push({
+        id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ("n-" + Date.now() + "-" + Math.random().toString(16).slice(2)),
+        filename: f.name,
+        tag: tag,
+        webUrl: f.webUrl,
+        folderPath: folderBreadcrumb(f.parentReference.path, acctCfg.tagRootPath),
+        driveItemId: f.id,
+        capturedAt: new Date().toISOString()
+      });
+    });
+    // Any tag typed/chosen here that isn't yet a tracked folder's name
+    // becomes trackable only once a real matching OneDrive folder exists
+    // and is added via Manage — this capture step never free-types a tag
+    // not already backed by a tracked folder (tag-source-of-truth rule).
+    persistAndSync();
+    render();
+  }
+
+  // =========================================================================
+  // Sync — re-checks every tracked folder via delta query; creates notes
+  // for new files only (does not update or remove notes for files moved,
+  // renamed, or deleted afterward — flagged gap, see Workflows to define).
+  // =========================================================================
+  function runSync() {
+    var acctCfg = activeAccountConfig();
+    if (!acctCfg) { alert("Select an account first."); return; }
+    getTokenForActiveAccount().then(function (token) {
+      var acctData = data[acctCfg.key];
+      var driveBaseUrl = acctCfg.driveBaseUrl;
+      var newCount = 0;
+      var work = acctData.trackedFolders.map(function (tf) {
+        return deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).then(function (result) {
+          tf.deltaLink = result.deltaLink;
+          result.items.forEach(function (item) {
+            if (item.folder || item.deleted) return; // only new files; see flagged gap
+            var already = acctData.notes.find(function (n) { return n.driveItemId === item.id; });
+            if (already) return;
+            acctData.notes.push({
+              id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ("n-" + Date.now() + "-" + Math.random().toString(16).slice(2)),
+              filename: item.name,
+              tag: tf.name,
+              webUrl: item.webUrl,
+              folderPath: folderBreadcrumb(item.parentReference ? item.parentReference.path : "", acctCfg.tagRootPath),
+              driveItemId: item.id,
+              capturedAt: new Date().toISOString()
+            });
+            newCount++;
+          });
+        });
+      });
+      Promise.all(work).then(function () {
+        persistAndSync();
+        render();
+        alert(newCount + " new file" + (newCount === 1 ? "" : "s") + " found.");
+      }).catch(function (err) {
+        alert("Sync failed: " + (err && err.message ? err.message : err));
+      });
+    }).catch(function (err) {
+      alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
+    });
+  }
+
+  // =========================================================================
+  // Manage — tracked folders, tags, notes
+  // =========================================================================
+  function addTrackedFolder() {
+    var acctCfg = activeAccountConfig();
+    if (!acctCfg) { alert("Select an account first."); return; }
+    getTokenForActiveAccount().then(function (token) {
+      OneDrive.open({
+        clientId: localConfig.azureClientId,
+        action: "query",
+        multiSelect: false,
+        advanced: {
+          accessToken: token,
+          queryParameters: "select=id,name,folder,parentReference",
+          filter: "folder"
+        },
+        success: function (result) {
+          var folderItem = result.value[0];
+          resolveAddableUnitsForFolder(acctCfg.driveBaseUrl, folderItem, token).then(function (units) {
+            units.forEach(function (u) {
+              var acctData = data[acctCfg.key];
+              var already = acctData.trackedFolders.find(function (tf) { return tf.id === u.id; });
+              if (already) return;
+              deltaQuery(acctCfg.driveBaseUrl, u.id, token, null).then(function (deltaResult) {
+                acctData.trackedFolders.push({ id: u.id, name: u.name, path: u.path, deltaLink: deltaResult.deltaLink });
+                persistAndSync();
+                renderTrackedFoldersList();
+              });
+            });
+          });
+        },
+        cancel: function () {},
+        error: function (e) { alert("Picker error: " + JSON.stringify(e)); }
+      });
+    }).catch(function (err) {
+      alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
+    });
+  }
+
+  function removeTrackedFolder(folderId) {
+    var acctData = activeAccountData();
+    var tf = acctData.trackedFolders.find(function (t) { return t.id === folderId; });
+    if (!tf) return;
+    var noteCount = acctData.notes.filter(function (n) { return n.tag === tf.name; }).length;
+    requestConfirm(
+      "Stop tracking \"" + tf.name + "\" and delete its " + noteCount + " note" + (noteCount === 1 ? "" : "s") + "? Source files in OneDrive are never touched.",
+      function () {
+        acctData.trackedFolders = acctData.trackedFolders.filter(function (t) { return t.id !== folderId; });
+        acctData.notes = acctData.notes.filter(function (n) { return n.tag !== tf.name; });
+        persistAndSync();
+        renderTrackedFoldersList();
+        render();
+      }
+    );
+  }
+
+  function deleteTag(tagName) {
+    var acctData = activeAccountData();
+    var count = acctData.notes.filter(function (n) { return n.tag === tagName; }).length;
+    if (count > 0) {
+      openReassignSheet(tagName, count);
+      return;
+    }
+    requestConfirm("Delete tag \"" + tagName + "\"? No notes use it.", function () {
+      acctData.trackedFolders = acctData.trackedFolders.filter(function (tf) { return tf.name !== tagName; });
+      persistAndSync();
+      renderTagsList();
+    });
+  }
+
+  function openReassignSheet(tagName, count) {
+    var acctData = activeAccountData();
+    el.reassignTitle.textContent = count + " note" + (count === 1 ? "" : "s") + " still use \"" + tagName + "\" — reassign to:";
+    el.reassignGrid.innerHTML = "";
+    var otherTags = acctData.trackedFolders.map(function (tf) { return tf.name; }).filter(function (t) { return t !== tagName; });
+    if (otherTags.length === 0) {
+      var msg = document.createElement("div");
+      msg.className = "list-row-blocked";
+      msg.textContent = "No other tags exist yet to reassign to. Add another tracked folder first.";
+      el.reassignGrid.appendChild(msg);
+    }
+    otherTags.forEach(function (t) {
+      var btn = document.createElement("div");
+      btn.className = "tag-choice";
+      btn.textContent = t;
+      btn.addEventListener("click", function () {
+        acctData.notes.forEach(function (n) { if (n.tag === tagName) n.tag = t; });
+        acctData.trackedFolders = acctData.trackedFolders.filter(function (tf) { return tf.name !== tagName; });
+        persistAndSync();
+        closeSheet("reassignSheet");
+        renderTagsList();
+        render();
+      });
+      el.reassignGrid.appendChild(btn);
+    });
+    openSheet("reassignSheet");
+  }
+
+  function deleteNote(noteId) {
+    var acctData = activeAccountData();
+    var note = acctData.notes.find(function (n) { return n.id === noteId; });
+    if (!note) return;
+    requestConfirm("Delete this note? The source file is never touched.", function () {
+      acctData.notes = acctData.notes.filter(function (n) { return n.id !== noteId; });
+      persistAndSync();
+      render();
+    });
+  }
+
+  // =========================================================================
+  // Confirm sheet (generic)
+  // =========================================================================
+  function requestConfirm(text, onYes) {
+    el.confirmText.textContent = text;
+    pendingConfirm = onYes;
+    openSheet("confirmSheet");
+  }
+
+  // =========================================================================
+  // Rendering
+  // =========================================================================
+  function render() {
+    renderAccountSelect();
+    renderTagFilterBtn();
+    renderNoteList();
+  }
+
+  function renderAccountSelect() {
+    el.accountSelect.innerHTML = "";
+    if (localConfig.accounts.length === 0) {
+      var opt = document.createElement("option");
+      opt.textContent = "No account signed in";
+      el.accountSelect.appendChild(opt);
+      return;
+    }
+    localConfig.accounts.forEach(function (a) {
+      var opt = document.createElement("option");
+      opt.value = a.key;
+      opt.textContent = a.label;
+      opt.selected = a.key === localConfig.activeAccountKey;
+      el.accountSelect.appendChild(opt);
+    });
+  }
+
+  function renderTagFilterBtn() {
+    el.tagFilterBtn.textContent = searchState.tags.length ? (searchState.tags.length + " tag" + (searchState.tags.length === 1 ? "" : "s")) : "Tags";
+    el.tagFilterBtn.classList.toggle("active", searchState.tags.length > 0);
+  }
+
+  function renderNoteList() {
+    el.content.innerHTML = "";
+    var acctData = activeAccountData();
+    if (!acctData) {
+      var noAcct = document.createElement("div");
+      noAcct.className = "empty-state";
+      noAcct.textContent = "Sign into an account to get started.";
+      el.content.appendChild(noAcct);
+      return;
+    }
+    var text = searchState.text.trim().toLowerCase();
+    var notes = acctData.notes.filter(function (n) {
+      var matchesText = !text || n.filename.toLowerCase().indexOf(text) !== -1;
+      var matchesTag = searchState.tags.length === 0 || searchState.tags.indexOf(n.tag) !== -1;
+      return matchesText && matchesTag;
+    }).sort(function (a, b) { return new Date(b.capturedAt) - new Date(a.capturedAt); });
+
+    if (notes.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = acctData.notes.length === 0 ? "No notes captured yet." : "No notes match your search.";
+      el.content.appendChild(empty);
+      return;
+    }
+    notes.forEach(function (n) { el.content.appendChild(renderNoteRow(n)); });
+  }
+
+  function renderNoteRow(note) {
+    var row = document.createElement("div");
+    row.className = "note-row";
+
+    var card = document.createElement("div");
+    card.className = "note-card";
+
+    var filename = document.createElement("div");
+    filename.className = "note-filename";
+    filename.textContent = note.filename;
+    card.appendChild(filename);
+
+    var metaRow = document.createElement("div");
+    metaRow.className = "note-meta-row";
+
+    var tag = document.createElement("span");
+    tag.className = "note-tag";
+    tag.textContent = note.tag;
+    metaRow.appendChild(tag);
+
+    var path = document.createElement("span");
+    path.className = "note-path";
+    path.textContent = note.folderPath;
+    metaRow.appendChild(path);
+
+    var link = document.createElement("a");
+    link.className = "note-link";
+    link.href = note.webUrl;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Open ↗";
+    metaRow.appendChild(link);
+
+    card.appendChild(metaRow);
+    row.appendChild(card);
+
+    var delBtn = document.createElement("button");
+    delBtn.className = "note-delete-hover";
+    delBtn.textContent = "×";
+    delBtn.addEventListener("click", function () { deleteNote(note.id); });
+    row.appendChild(delBtn);
+
+    return row;
+  }
+
+  function renderTagFilterList() {
+    var acctData = activeAccountData();
+    el.tagFilterList.innerHTML = "";
+    if (!acctData || acctData.trackedFolders.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "list-row-blocked";
+      empty.textContent = "No tags yet.";
+      el.tagFilterList.appendChild(empty);
+      return;
+    }
+    acctData.trackedFolders.map(function (tf) { return tf.name; }).forEach(function (t) {
+      var row = document.createElement("div");
+      row.className = "picker-row";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = searchState.tags.indexOf(t) !== -1;
+      cb.addEventListener("change", function () {
+        var idx = searchState.tags.indexOf(t);
+        if (cb.checked && idx === -1) searchState.tags.push(t);
+        if (!cb.checked && idx !== -1) searchState.tags.splice(idx, 1);
+        renderTagFilterBtn();
+        renderNoteList();
+      });
+      row.appendChild(cb);
+      var label = document.createElement("span");
+      label.textContent = t;
+      row.appendChild(label);
+      row.addEventListener("click", function (e) { if (e.target !== cb) cb.click(); });
+      el.tagFilterList.appendChild(row);
+    });
+  }
+
+  function renderTrackedFoldersList() {
+    var acctData = activeAccountData();
+    el.trackedFoldersList.innerHTML = "";
+    if (!acctData || acctData.trackedFolders.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "list-row-blocked";
+      empty.textContent = "No tracked folders yet — use \"Add folder…\" above.";
+      el.trackedFoldersList.appendChild(empty);
+      return;
+    }
+    acctData.trackedFolders.forEach(function (tf) {
+      var row = document.createElement("div");
+      row.className = "list-row";
+      var labelWrap = document.createElement("div");
+      var label = document.createElement("div");
+      label.className = "list-row-label";
+      label.textContent = tf.name;
+      labelWrap.appendChild(label);
+      var sub = document.createElement("div");
+      sub.className = "list-row-sub";
+      sub.textContent = tf.path;
+      labelWrap.appendChild(sub);
+      row.appendChild(labelWrap);
+      var removeBtn = document.createElement("button");
+      removeBtn.className = "list-row-remove";
+      removeBtn.textContent = "Remove";
+      removeBtn.addEventListener("click", function () { removeTrackedFolder(tf.id); });
+      row.appendChild(removeBtn);
+      el.trackedFoldersList.appendChild(row);
+    });
+  }
+
+  function renderTagsList() {
+    var acctData = activeAccountData();
+    el.tagsList.innerHTML = "";
+    if (!acctData || acctData.trackedFolders.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "list-row-blocked";
+      empty.textContent = "No tags yet.";
+      el.tagsList.appendChild(empty);
+      return;
+    }
+    acctData.trackedFolders.forEach(function (tf) {
+      var count = acctData.notes.filter(function (n) { return n.tag === tf.name; }).length;
+      var row = document.createElement("div");
+      row.className = "list-row";
+      var label = document.createElement("div");
+      label.className = "list-row-label";
+      label.textContent = tf.name + " (" + count + ")";
+      row.appendChild(label);
+      var removeBtn = document.createElement("button");
+      removeBtn.className = "list-row-remove";
+      removeBtn.textContent = "Delete";
+      removeBtn.addEventListener("click", function () { deleteTag(tf.name); });
+      row.appendChild(removeBtn);
+      el.tagsList.appendChild(row);
+    });
+  }
+
+  function renderAccountsList() {
+    el.accountsList.innerHTML = "";
+    localConfig.accounts.forEach(function (a) {
+      var row = document.createElement("div");
+      row.className = "list-row";
+      var label = document.createElement("div");
+      label.className = "list-row-label";
+      label.textContent = a.label + (a.key === localConfig.activeAccountKey ? " (active)" : "");
+      row.appendChild(label);
+      el.accountsList.appendChild(row);
+    });
+  }
+
+  function renderGhFields() {
+    if (localConfig.gh) {
+      el.ghOwner.value = localConfig.gh.owner || "";
+      el.ghRepo.value = localConfig.gh.repo || "";
+      el.ghPat.value = localConfig.gh.pat || "";
+    }
+    el.azureClientId.value = localConfig.azureClientId || "";
+  }
+
+  // =========================================================================
+  // Event wiring
+  // =========================================================================
+  function wireEvents() {
+    el.accountSelect.addEventListener("change", function () {
+      localConfig.activeAccountKey = el.accountSelect.value;
+      saveLocalConfig();
+      render();
+    });
+    el.addAccountBtn.addEventListener("click", addAccountFlow);
+
+    el.searchInput.addEventListener("input", function () {
+      searchState.text = el.searchInput.value;
+      renderNoteList();
+    });
+
+    el.tagFilterBtn.addEventListener("click", function () { renderTagFilterList(); openSheet("tagFilterSheet"); });
+    el.tagFilterClose.addEventListener("click", function () { closeSheet("tagFilterSheet"); });
+    el.tagFilterClearBtn.addEventListener("click", function () {
+      searchState.tags = [];
+      renderTagFilterList();
+      renderTagFilterBtn();
+      renderNoteList();
+    });
+
+    el.captureBtn.addEventListener("click", startCapture);
+    el.captureTagClose.addEventListener("click", function () { closeSheet("captureTagSheet"); });
+
+    el.syncBtn.addEventListener("click", runSync);
+
+    el.manageBtn.addEventListener("click", function () { openSheet("settingsHomeSheet"); });
+    el.settingsHomeClose.addEventListener("click", function () { closeSheet("settingsHomeSheet"); });
+    Array.prototype.forEach.call(document.querySelectorAll("#settingsHomeSheet .settings-row"), function (row) {
+      row.addEventListener("click", function () {
+        closeSheet("settingsHomeSheet");
+        var target = row.dataset.target;
+        if (target === "trackedFolders") { renderTrackedFoldersList(); openSheet("trackedFoldersSheet"); }
+        if (target === "tags") { renderTagsList(); openSheet("tagsSheet"); }
+        if (target === "accounts") { renderGhFields(); renderAccountsList(); openSheet("accountsSheet"); }
+      });
+    });
+
+    el.trackedFoldersBack.addEventListener("click", function () { closeSheet("trackedFoldersSheet"); openSheet("settingsHomeSheet"); });
+    el.addFolderBtn.addEventListener("click", addTrackedFolder);
+
+    el.tagsBack.addEventListener("click", function () { closeSheet("tagsSheet"); openSheet("settingsHomeSheet"); });
+    el.reassignClose.addEventListener("click", function () { closeSheet("reassignSheet"); });
+
+    el.accountsBack.addEventListener("click", function () { closeSheet("accountsSheet"); openSheet("settingsHomeSheet"); });
+    el.accountsAddBtn.addEventListener("click", addAccountFlow);
+    el.ghSaveBtn.addEventListener("click", function () {
+      localConfig.azureClientId = el.azureClientId.value.trim();
+      localConfig.gh = { owner: el.ghOwner.value.trim(), repo: el.ghRepo.value.trim(), pat: el.ghPat.value.trim(), sha: localConfig.gh ? localConfig.gh.sha : null };
+      saveLocalConfig();
+      el.ghSyncNote.textContent = "Saved. Pulling latest data…";
+      ghPull(function () {
+        el.ghSyncNote.textContent = "Synced.";
+        render();
+      });
+    });
+
+    el.confirmClose.addEventListener("click", function () { closeSheet("confirmSheet"); pendingConfirm = null; });
+    el.confirmNo.addEventListener("click", function () { closeSheet("confirmSheet"); pendingConfirm = null; });
+    el.confirmYes.addEventListener("click", function () {
+      var action = pendingConfirm;
+      closeSheet("confirmSheet");
+      pendingConfirm = null;
+      if (action) action();
+    });
+
+    el.backdrop.addEventListener("click", closeAllSheets);
+  }
+
+  // =========================================================================
+  // Boot
+  // =========================================================================
+  function boot() {
+    cacheEls();
+    loadLocalConfig();
+    loadLocalData();
+    wireEvents();
+    initMsal();
+    if (localConfig.gh) {
+      ghPull(function () { render(); });
+    } else {
+      render();
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+})();
+</script>
+</body>
+</html>
