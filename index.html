@@ -346,6 +346,7 @@
   var data = {};
 
   var msalApp = null;
+  var msalInitPromise = null;
   var searchState = { text: "", tags: [] };
   var pendingConfirm = null;
 
@@ -485,8 +486,8 @@
   // MSAL / auth
   // =========================================================================
   function initMsal() {
-    if (!localConfig.azureClientId) return null;
-    if (msalApp) return msalApp;
+    if (!localConfig.azureClientId) return Promise.resolve(null);
+    if (msalInitPromise) return msalInitPromise;
     msalApp = new msal.PublicClientApplication({
       auth: {
         clientId: localConfig.azureClientId,
@@ -495,48 +496,51 @@
       },
       cache: { cacheLocation: "localStorage" }
     });
-    return msalApp;
+    msalInitPromise = msalApp.initialize().then(function () { return msalApp; });
+    return msalInitPromise;
   }
 
   function addAccountFlow() {
-    var app = initMsal();
-    if (!app) { alert("Set an Azure app Client ID under Manage → Accounts & Connections first."); return; }
-    app.loginPopup({ scopes: GRAPH_SCOPES }).then(function (result) {
-      var homeAccountId = result.account.homeAccountId;
-      var already = localConfig.accounts.find(function (a) { return a.homeAccountId === homeAccountId; });
-      if (!already) {
-        var key = localConfig.accounts.length === 0 ? "personal" : ("account" + localConfig.accounts.length);
-        var defaults = ACCOUNT_DEFAULTS[key] || {};
-        localConfig.accounts.push({
-          key: key,
-          label: defaults.label || result.account.username,
-          homeAccountId: homeAccountId,
-          tagRootPath: defaults.tagRootPath || "",
-          driveBaseUrl: defaults.driveBaseUrl || "https://graph.microsoft.com/v1.0/me/drive"
-        });
-        localConfig.activeAccountKey = key;
-      } else {
-        localConfig.activeAccountKey = already.key;
-      }
-      saveLocalConfig();
-      renderAccountSelect();
-      renderAccountsList();
-      render();
+    initMsal().then(function (app) {
+      if (!app) { alert("Set an Azure app Client ID under Manage → Accounts & Connections first."); return; }
+      return app.loginPopup({ scopes: GRAPH_SCOPES }).then(function (result) {
+        var homeAccountId = result.account.homeAccountId;
+        var already = localConfig.accounts.find(function (a) { return a.homeAccountId === homeAccountId; });
+        if (!already) {
+          var key = localConfig.accounts.length === 0 ? "personal" : ("account" + localConfig.accounts.length);
+          var defaults = ACCOUNT_DEFAULTS[key] || {};
+          localConfig.accounts.push({
+            key: key,
+            label: defaults.label || result.account.username,
+            homeAccountId: homeAccountId,
+            tagRootPath: defaults.tagRootPath || "",
+            driveBaseUrl: defaults.driveBaseUrl || "https://graph.microsoft.com/v1.0/me/drive"
+          });
+          localConfig.activeAccountKey = key;
+        } else {
+          localConfig.activeAccountKey = already.key;
+        }
+        saveLocalConfig();
+        renderAccountSelect();
+        renderAccountsList();
+        render();
+      });
     }).catch(function (err) {
       alert("Sign-in failed: " + (err && err.message ? err.message : err));
     });
   }
 
   function getTokenForActiveAccount() {
-    var app = initMsal();
     var acctCfg = activeAccountConfig();
-    if (!app || !acctCfg) return Promise.reject(new Error("No active account"));
-    var msalAccount = app.getAccountByHomeId(acctCfg.homeAccountId);
-    if (!msalAccount) return Promise.reject(new Error("Account not found in MSAL cache"));
-    return app.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) {
-      return r.accessToken;
-    }).catch(function () {
-      return app.acquireTokenPopup({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) { return r.accessToken; });
+    return initMsal().then(function (app) {
+      if (!app || !acctCfg) return Promise.reject(new Error("No active account"));
+      var msalAccount = app.getAccountByHomeId(acctCfg.homeAccountId);
+      if (!msalAccount) return Promise.reject(new Error("Account not found in MSAL cache"));
+      return app.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) {
+        return r.accessToken;
+      }).catch(function () {
+        return app.acquireTokenPopup({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) { return r.accessToken; });
+      });
     });
   }
 
