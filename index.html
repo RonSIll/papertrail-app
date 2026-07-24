@@ -646,14 +646,21 @@
 
   function openOneDrivePicker(token, acctCfg) {
     var advanced = {
-      accessToken: token,
       queryParameters: "select=id,name,webUrl,folder,parentReference"
     };
     // The picker SDK defaults to its own AAD (work/school) sign-in flow and
     // ignores the supplied accessToken unless told the account is a personal
     // Microsoft account. Only "personal" is a consumer MSA today; a future
     // KellyVend (AAD tenant) account should NOT set this.
-    if (acctCfg.key === "personal") advanced.endpointHint = "api.onedrive.com";
+    if (acctCfg.key === "personal") {
+      // MSA mode talks to the legacy api.onedrive.com API, which requires a
+      // token minted for that resource, not our Graph-scoped MSAL token —
+      // so let the picker acquire and use its own token via its built-in
+      // sign-in popup rather than handing it ours.
+      advanced.endpointHint = "api.onedrive.com";
+    } else {
+      advanced.accessToken = token;
+    }
     OneDrive.open({
       clientId: localConfig.azureClientId,
       action: "query",
