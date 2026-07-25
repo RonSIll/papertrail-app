@@ -367,7 +367,12 @@
     personal: {
       label: "Personal",
       tagRootPath: "Projects",
-      driveBaseUrl: "https://graph.microsoft.com/v1.0/me/drive"
+      driveBaseUrl: "https://graph.microsoft.com/v1.0/me/drive",
+      // Local OneDrive-sync mirror of tagRootPath on this PC — lets the
+      // FILE LOCATION pill build a real filesystem path. Undefined for any
+      // account without a known local sync mirror (e.g. KellyVend today);
+      // the pill simply doesn't render in that case.
+      localSyncRoot: "C:\\Users\\ronsi\\OneDrive\\Projects"
     }
   };
 
@@ -677,6 +682,24 @@
     if (idx === -1) return parentPath.replace(/^\/drive\/root:/, "");
     var rest = parentPath.slice(idx + marker.length); // leading slash or empty
     return rest.replace(/^\//, "").split("/").join(" / ");
+  }
+
+  // Builds a "papertrail-explorer:" URI for the FILE LOCATION pill — a
+  // custom protocol, registered once on this PC (see
+  // Apps/PaperTrail-RegisterProtocol.ps1 in the workshop root, outside this
+  // repo), that hands the path to a small VBS helper which opens native
+  // File Explorer there. A plain web link can't launch explorer.exe
+  // directly, only a registered protocol handler can. Reverses
+  // folderBreadcrumb's " / "-joined display string back into a real
+  // filesystem path — safe since folder names never contain " / " (a
+  // literal slash can't appear in a folder name at all). Returns null when
+  // the active account has no known local sync mirror (e.g. KellyVend
+  // today), which hides the pill entirely rather than building a dead link.
+  function buildFileLocationHref(note, acctCfg) {
+    if (!acctCfg || !acctCfg.localSyncRoot) return null;
+    var relPath = note.folderPath ? note.folderPath.split(" / ").join("\\") : "";
+    var fullPath = acctCfg.localSyncRoot + (relPath ? "\\" + relPath : "");
+    return "papertrail-explorer:" + encodeURIComponent(fullPath);
   }
 
   // =========================================================================
@@ -1282,6 +1305,7 @@
     }
 
     var mySeq = ++previewRequestSeq;
+    var acctCfg = activeAccountConfig();
 
     var wrap = document.createElement("div");
     wrap.className = "preview-content";
@@ -1304,6 +1328,14 @@
     link.rel = "noopener";
     link.textContent = "Open";
     metaRow.appendChild(link);
+    var fileLocHref = buildFileLocationHref(note, acctCfg);
+    if (fileLocHref) {
+      var fileLoc = document.createElement("a");
+      fileLoc.className = "note-link-pill";
+      fileLoc.href = fileLocHref;
+      fileLoc.textContent = "File Location";
+      metaRow.appendChild(fileLoc);
+    }
     wrap.appendChild(metaRow);
 
     var thumbSlot = document.createElement("div");
@@ -1313,7 +1345,6 @@
 
     el.contentRight.appendChild(wrap);
 
-    var acctCfg = activeAccountConfig();
     if (!acctCfg) { thumbSlot.textContent = "No preview available."; return; }
 
     if (/\.url$/i.test(note.filename)) {
