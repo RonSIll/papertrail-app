@@ -91,8 +91,12 @@
   /* Note list (left half of the right panel) */
   .content { flex: 1 1 0; min-width: 0; overflow-y: auto; padding: 8px 16px; -webkit-overflow-scrolling: touch; }
 
-  /* Right half of the right panel — reserved, not yet in use */
+  /* Right half of the right panel — click a note in the center panel to preview it here */
   .content-right { flex: 1 1 0; min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); }
+  .preview-content { padding: 16px; }
+  .preview-filename { font-size: 15px; font-weight: 600; color: var(--text); word-break: break-word; margin-bottom: 8px; }
+  .preview-thumb-slot { margin-top: 14px; color: var(--text3); font-size: 13px; }
+  .preview-thumb { max-width: 100%; display: block; border: 1px solid var(--border); }
   .note-row {
     position: relative; overflow: hidden; margin-bottom: 6px;
   }
@@ -103,8 +107,9 @@
   }
   .note-card {
     background: var(--bg2); padding: 10px 14px; position: relative; z-index: 1;
-    transition: transform 0.2s; cursor: default;
+    transition: transform 0.2s; cursor: pointer;
   }
+  .note-card.selected { box-shadow: inset 0 0 0 2px var(--accent); background: rgba(79,107,255,0.08); }
   .note-filename { font-size: 15px; font-weight: 500; color: var(--text); word-break: break-word; }
   .note-meta-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
   .note-tag {
@@ -358,6 +363,8 @@
   var msalApp = null;
   var msalInitPromise = null;
   var searchState = { text: "", tag: null };
+  var selectedCardEl = null; // currently selected note-card in the center panel, drives the right-panel preview
+  var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
   var pendingConfirm = null;
 
   // =========================================================================
@@ -366,7 +373,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountRow","accountSelect","addAccountBtn","searchInput","content","tagSidebar","globalStatusMsg",
+      "accountRow","accountSelect","addAccountBtn","searchInput","content","contentRight","tagSidebar","globalStatusMsg",
       "captureBtn","syncBtn","manageBtn","backdrop",
       "captureTagSheet","captureTagTitle","captureTagGrid","captureTagClose","captureStatusMsg",
       "browseSheet","browseTitle","browseList","browseClose","browseSelectBtn","browseCancelBtn",
@@ -1150,6 +1157,8 @@
 
   function renderNoteList() {
     el.content.innerHTML = "";
+    selectedCardEl = null;
+    renderPreview(null);
     var acctData = activeAccountData();
     if (!acctData) {
       var noAcct = document.createElement("div");
@@ -1209,6 +1218,13 @@
     metaRow.appendChild(link);
 
     card.appendChild(metaRow);
+    card.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest("a")) return; // let the Open link behave normally
+      if (selectedCardEl) selectedCardEl.classList.remove("selected");
+      card.classList.add("selected");
+      selectedCardEl = card;
+      renderPreview(note);
+    });
     row.appendChild(card);
 
     var delBtn = document.createElement("button");
@@ -1218,6 +1234,75 @@
     row.appendChild(delBtn);
 
     return row;
+  }
+
+  // Right panel: shows a thumbnail (via Graph's /thumbnails endpoint — no
+  // extra permission needed, and nothing gets downloaded or stored, just
+  // fetched live) plus filename/tag/link for whichever note was last
+  // clicked in the center panel. Cleared whenever the note list rebuilds.
+  function renderPreview(note) {
+    el.contentRight.innerHTML = "";
+    if (!note) {
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Select a note to preview.";
+      el.contentRight.appendChild(empty);
+      return;
+    }
+
+    var mySeq = ++previewRequestSeq;
+
+    var wrap = document.createElement("div");
+    wrap.className = "preview-content";
+
+    var filename = document.createElement("div");
+    filename.className = "preview-filename";
+    filename.textContent = note.filename;
+    wrap.appendChild(filename);
+
+    var metaRow = document.createElement("div");
+    metaRow.className = "note-meta-row";
+    var tag = document.createElement("span");
+    tag.className = "note-tag";
+    tag.textContent = note.tag;
+    metaRow.appendChild(tag);
+    var link = document.createElement("a");
+    link.className = "note-link";
+    link.href = note.webUrl;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Open ↗";
+    metaRow.appendChild(link);
+    wrap.appendChild(metaRow);
+
+    var thumbSlot = document.createElement("div");
+    thumbSlot.className = "preview-thumb-slot";
+    thumbSlot.textContent = "Loading preview…";
+    wrap.appendChild(thumbSlot);
+
+    el.contentRight.appendChild(wrap);
+
+    var acctCfg = activeAccountConfig();
+    if (!acctCfg) { thumbSlot.textContent = "No preview available."; return; }
+
+    getTokenForActiveAccount().then(function (token) {
+      var url = acctCfg.driveBaseUrl + "/items/" + note.driveItemId + "/thumbnails";
+      return graphFetch(url, token);
+    }).then(function (result) {
+      if (mySeq !== previewRequestSeq) return; // superseded by a newer selection
+      var set = result.value && result.value[0];
+      var img = set && (set.large || set.medium || set.small);
+      if (!img) { thumbSlot.textContent = "No preview available for this file type."; return; }
+      thumbSlot.innerHTML = "";
+      var imgEl = document.createElement("img");
+      imgEl.className = "preview-thumb";
+      imgEl.src = img.url;
+      imgEl.alt = note.filename;
+      thumbSlot.appendChild(imgEl);
+    }).catch(function () {
+      if (mySeq !== previewRequestSeq) return;
+      thumbSlot.textContent = "Couldn't load a preview for this file.";
+    });
   }
 
   function renderTrackedFoldersList() {
