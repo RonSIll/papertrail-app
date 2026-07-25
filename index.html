@@ -198,7 +198,7 @@
 <body>
 <div id="app">
   <div class="topbar">
-    <div class="account-row">
+    <div class="account-row" id="accountRow">
       <select class="account-select" id="accountSelect"></select>
       <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
     </div>
@@ -372,7 +372,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountSelect","addAccountBtn","searchInput","content","tagSidebar","globalStatusMsg",
+      "accountRow","accountSelect","addAccountBtn","searchInput","content","tagSidebar","globalStatusMsg",
       "captureBtn","syncBtn","manageBtn","backdrop",
       "captureTagSheet","captureTagTitle","captureTagGrid","captureTagClose","captureStatusMsg",
       "browseSheet","browseTitle","browseList","browseClose","browseSelectBtn","browseCancelBtn",
@@ -1090,6 +1090,7 @@
   }
 
   function renderAccountSelect() {
+    el.accountRow.hidden = localConfig.accounts.length < 2;
     el.accountSelect.innerHTML = "";
     if (localConfig.accounts.length === 0) {
       var opt = document.createElement("option");
