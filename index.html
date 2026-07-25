@@ -1530,6 +1530,12 @@
         searchState.text = "";
         renderTagSidebar();
         renderNoteList();
+      } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
+        // Hand off from the search box into the center panel, always
+        // starting at the top card regardless of any prior selection.
+        e.preventDefault();
+        el.searchInput.blur();
+        selectNoteAtIndex(0);
       }
     });
     // Global Escape: jump focus to search, unless a sheet is open — sheets
@@ -1549,6 +1555,13 @@
       var tag = document.activeElement && document.activeElement.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (visibleNotes.length === 0) return;
+      if (e.key === "ArrowUp" && selectedIndex === 0) {
+        // Already on the top card — hand focus back to the search box
+        // instead of a no-op re-select of the same card.
+        e.preventDefault();
+        el.searchInput.focus();
+        return;
+      }
       e.preventDefault();
       if (e.key === "ArrowDown") {
         selectNoteAtIndex(selectedIndex === -1 ? 0 : selectedIndex + 1);
