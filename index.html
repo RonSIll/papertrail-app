@@ -146,14 +146,6 @@
     text-decoration: none; cursor: pointer;
   }
   .note-path { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-  .note-link {
-    font-size: 12px; color: var(--accent); text-decoration: none; flex: 0 0 auto;
-  }
-  .note-delete-hover {
-    display: none; position: absolute; top: 10px; right: 10px;
-    background: none; border: none; color: var(--text3); cursor: pointer; font-size: 16px; z-index: 2;
-  }
-  @media (hover: hover) { .note-row:hover .note-delete-hover { display: block; } }
   .empty-state { color: var(--text3); font-size: 15px; padding: 60px 20px; text-align: center; }
 
   /* Sheets */
@@ -948,9 +940,12 @@
   }
 
   // =========================================================================
-  // Sync — re-checks every tracked folder via delta query; creates notes
-  // for new files only (does not update or remove notes for files moved,
-  // renamed, or deleted afterward — flagged gap, see Workflows to define).
+  // Sync — re-checks every tracked folder via delta query; creates notes for
+  // new files and removes the note for any file the delta feed reports
+  // deleted. A renamed/moved file surfaces as a delete-plus-add pair in the
+  // same delta batch, so it's handled correctly too. This is Ron's intended
+  // deletion workflow: remove the file in OneDrive, then Sync (not just a
+  // page reload, which only re-pulls the last-synced GitHub data).
   // =========================================================================
   function runSync() {
     var acctCfg = activeAccountConfig();
@@ -959,12 +954,18 @@
       var acctData = data[acctCfg.key];
       var driveBaseUrl = acctCfg.driveBaseUrl;
       var newCount = 0;
+      var removedCount = 0;
       var failedFolders = [];
       var work = acctData.trackedFolders.map(function (tf) {
         return deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).then(function (result) {
           tf.deltaLink = result.deltaLink;
           result.items.forEach(function (item) {
-            if (item.folder || item.deleted) return; // only new files; see flagged gap
+            if (item.deleted) {
+              var idx = acctData.notes.findIndex(function (n) { return n.driveItemId === item.id; });
+              if (idx !== -1) { acctData.notes.splice(idx, 1); removedCount++; }
+              return;
+            }
+            if (item.folder) return;
             var already = acctData.notes.find(function (n) { return n.driveItemId === item.id; });
             if (already) return;
             acctData.notes.push({
@@ -990,6 +991,9 @@
         persistAndSync();
         render();
         var msg = newCount + " new file" + (newCount === 1 ? "" : "s") + " found.";
+        if (removedCount) {
+          msg += " " + removedCount + " note" + (removedCount === 1 ? "" : "s") + " removed for deleted files.";
+        }
         if (failedFolders.length) {
           msg += " Couldn't sync: " + failedFolders.join(", ") + ".";
         }
@@ -1094,17 +1098,6 @@
       el.reassignGrid.appendChild(btn);
     });
     openSheet("reassignSheet");
-  }
-
-  function deleteNote(noteId) {
-    var acctData = activeAccountData();
-    var note = acctData.notes.find(function (n) { return n.id === noteId; });
-    if (!note) return;
-    requestConfirm("Delete this note? The source file is never touched.", function () {
-      acctData.notes = acctData.notes.filter(function (n) { return n.id !== noteId; });
-      persistAndSync();
-      render();
-    });
   }
 
   // =========================================================================
@@ -1252,12 +1245,6 @@
       renderPreview(note);
     });
     row.appendChild(card);
-
-    var delBtn = document.createElement("button");
-    delBtn.className = "note-delete-hover";
-    delBtn.textContent = "×";
-    delBtn.addEventListener("click", function () { deleteNote(note.id); });
-    row.appendChild(delBtn);
 
     return row;
   }
