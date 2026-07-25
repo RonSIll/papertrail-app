@@ -66,12 +66,16 @@
     justify-content: center; cursor: pointer; font-size: 16px;
   }
   .search-row { display: flex; align-items: center; gap: 6px; }
+  .search-field-wrap {
+    /* Matches the rendered width of the center panel: half of content-row
+       (flex: 1 1 0 split with .content-right) — expressed here relative to
+       .search-row's own width, which already has the topbar's 16px+16px
+       padding stripped, same as .content-row has none of its own. The
+       48px-wide search box is centered within this zone. */
+    flex: 0 1 50%; min-width: 0; display: flex; justify-content: center;
+  }
   .search-row input[type="text"] {
-    /* Matches the rendered width of a note card: the center panel is half of
-       content-row (flex: 1 1 0 split with .content-right), minus .content's
-       own 16px+16px padding — expressed here relative to .search-row's own
-       width, which already has the topbar's matching 16px+16px stripped. */
-    flex: 0 1 calc(50% - 16px); min-width: 0; border: 1px solid var(--border); background: var(--bg2);
+    flex: 0 0 auto; width: 48px; border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 10px; font-size: 14px; outline: none;
   }
   .topbar-actions { display: flex; gap: 6px; margin-left: auto; }
@@ -221,7 +225,9 @@
         <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
       </div>
       <div class="search-row">
-        <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="search-field-wrap">
+          <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </div>
         <div class="topbar-actions">
           <button class="icon-btn-top" id="captureBtn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
