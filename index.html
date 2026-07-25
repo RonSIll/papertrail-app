@@ -684,22 +684,42 @@
     return rest.replace(/^\//, "").split("/").join(" / ");
   }
 
+  // Reconstructs a note's real local folder path from folderBreadcrumb's
+  // " / "-joined display string — safe since folder names never contain
+  // " / " (a literal slash can't appear in a folder name at all). Returns
+  // null when the active account has no known local sync mirror (e.g.
+  // KellyVend today).
+  function localFolderPath(note, acctCfg) {
+    if (!acctCfg || !acctCfg.localSyncRoot) return null;
+    var relPath = note.folderPath ? note.folderPath.split(" / ").join("\\") : "";
+    return acctCfg.localSyncRoot + (relPath ? "\\" + relPath : "");
+  }
+
+  // True only on the PC this app's protocol handlers are registered on —
+  // gates the Open pill's local-file behavior below. Not a security check,
+  // just a UX branch, so plain user-agent sniffing is fine here.
+  function isDesktopPc() {
+    return navigator.userAgent.indexOf("Windows") !== -1;
+  }
+
   // Builds a "papertrail-explorer:" URI for the FILE LOCATION pill — a
   // custom protocol, registered once on this PC (see
   // Apps/PaperTrail-RegisterProtocol.ps1 in the workshop root, outside this
   // repo), that hands the path to a small VBS helper which opens native
   // File Explorer there. A plain web link can't launch explorer.exe
-  // directly, only a registered protocol handler can. Reverses
-  // folderBreadcrumb's " / "-joined display string back into a real
-  // filesystem path — safe since folder names never contain " / " (a
-  // literal slash can't appear in a folder name at all). Returns null when
-  // the active account has no known local sync mirror (e.g. KellyVend
-  // today), which hides the pill entirely rather than building a dead link.
+  // directly, only a registered protocol handler can.
   function buildFileLocationHref(note, acctCfg) {
-    if (!acctCfg || !acctCfg.localSyncRoot) return null;
-    var relPath = note.folderPath ? note.folderPath.split(" / ").join("\\") : "";
-    var fullPath = acctCfg.localSyncRoot + (relPath ? "\\" + relPath : "");
-    return "papertrail-explorer:" + encodeURIComponent(fullPath);
+    var folderPath = localFolderPath(note, acctCfg);
+    return folderPath ? "papertrail-explorer:" + encodeURIComponent(folderPath) : null;
+  }
+
+  // Builds a "papertrail-openfile:" URI for the Open pill on PC — same
+  // registered-protocol mechanism as buildFileLocationHref, but the VBS
+  // handler (PaperTrail-OpenFile.vbs) opens the file itself with its
+  // default app instead of revealing the containing folder.
+  function buildOpenFileHref(note, acctCfg) {
+    var folderPath = localFolderPath(note, acctCfg);
+    return folderPath ? "papertrail-openfile:" + encodeURIComponent(folderPath + "\\" + note.filename) : null;
   }
 
   // =========================================================================
@@ -1323,9 +1343,18 @@
     metaRow.appendChild(tag);
     var link = document.createElement("a");
     link.className = "note-link-pill";
-    link.href = note.webUrl;
-    link.target = "_blank";
-    link.rel = "noopener";
+    var openFileHref = isDesktopPc() ? buildOpenFileHref(note, acctCfg) : null;
+    if (openFileHref) {
+      // PC with a known local sync root: open the real local file directly
+      // instead of routing through OneDrive's web view.
+      link.href = openFileHref;
+    } else {
+      // iPhone, or a PC account with no local sync root configured yet
+      // (KellyVend today): fall back to the OneDrive web link.
+      link.href = note.webUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+    }
     link.textContent = "Open";
     metaRow.appendChild(link);
     var fileLocHref = buildFileLocationHref(note, acctCfg);
