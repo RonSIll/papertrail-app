@@ -1103,9 +1103,21 @@
 
   // Left-quarter tag column — alphabetical, click to filter to one tag,
   // click the active tag again (or "All") to clear back to the full list.
+  // While a filename search is active, only tags belonging to matching
+  // notes are shown; the active tag filter auto-clears if it drops out.
   function renderTagSidebar() {
     var acctData = activeAccountData();
     el.tagSidebar.innerHTML = "";
+
+    var text = searchState.text.trim().toLowerCase();
+    var visibleTags = null;
+    if (text && acctData) {
+      visibleTags = {};
+      acctData.notes.forEach(function (n) {
+        if (n.filename.toLowerCase().indexOf(text) !== -1) visibleTags[n.tag] = true;
+      });
+      if (searchState.tag && !visibleTags[searchState.tag]) searchState.tag = null;
+    }
 
     var allRow = document.createElement("div");
     allRow.className = "tag-sidebar-item" + (!searchState.tag ? " active" : "");
@@ -1121,6 +1133,7 @@
 
     acctData.trackedFolders
       .map(function (tf) { return tf.name; })
+      .filter(function (t) { return !visibleTags || visibleTags[t]; })
       .sort(function (a, b) { return a.localeCompare(b); })
       .forEach(function (t) {
         var row = document.createElement("div");
@@ -1301,6 +1314,7 @@
 
     el.searchInput.addEventListener("input", function () {
       searchState.text = el.searchInput.value;
+      renderTagSidebar();
       renderNoteList();
     });
 
