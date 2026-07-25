@@ -69,17 +69,17 @@
     color: var(--text); padding: 9px 10px; font-size: 14px; outline: none;
   }
 
-  /* Content row: tag sidebar (left quarter) + note list */
+  /* Content row: tag sidebar (left third) + note list */
   .content-row { flex: 1 1 auto; display: flex; overflow: hidden; }
   .tag-sidebar {
-    flex: 0 0 25%; max-width: 25%; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    border-right: 1px solid var(--border); padding: 4px 0;
+    flex: 0 0 33.333%; max-width: 33.333%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: #3a3a3d; padding: 4px 0;
   }
   .tag-sidebar-item {
-    padding: 10px 8px; font-size: 12px; line-height: 1.3; color: var(--text2);
-    cursor: pointer; word-break: break-word; border-bottom: 0.5px solid var(--border);
+    padding: 10px 8px; font-size: 12px; line-height: 1.3; color: #c8c8cc;
+    cursor: pointer; word-break: break-word;
   }
-  .tag-sidebar-item.active { color: var(--accent); background: rgba(79,107,255,0.12); font-weight: 600; }
+  .tag-sidebar-item.active { color: #fff; background: rgba(255,255,255,0.14); font-weight: 600; }
 
   /* Note list */
   .content { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 8px 16px; -webkit-overflow-scrolling: touch; }
