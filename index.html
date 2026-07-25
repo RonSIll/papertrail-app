@@ -184,6 +184,8 @@
   .status-msg.error { background: rgba(255,59,48,0.12); color: var(--red); }
   .status-msg.success { background: rgba(46,158,74,0.12); color: var(--green); }
 
+  #globalStatusMsg { flex: 0 0 auto; margin: 8px 16px 0; cursor: pointer; }
+
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -199,6 +201,8 @@
       <button class="tag-filter-btn" id="tagFilterBtn">Tags</button>
     </div>
   </div>
+
+  <div class="status-msg error" id="globalStatusMsg" hidden></div>
 
   <main class="content" id="content"></main>
 
@@ -367,7 +371,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountSelect","addAccountBtn","searchInput","tagFilterBtn","content",
+      "accountSelect","addAccountBtn","searchInput","tagFilterBtn","content","globalStatusMsg",
       "captureBtn","syncBtn","manageBtn","backdrop",
       "tagFilterSheet","tagFilterList","tagFilterClose","tagFilterClearBtn",
       "captureTagSheet","captureTagTitle","captureTagGrid","captureTagClose","captureStatusMsg",
@@ -481,17 +485,32 @@
     }).then(function (json) {
       localConfig.gh.sha = json.content.sha;
       saveLocalConfig();
+      hideGlobalStatus();
     }).catch(function () {
       // Last-write-wins, no merge — same accepted risk as Task List (see
       // project_brief.md "Workflows to define": concurrent multi-device
-      // writes). A failed/rejected push just leaves local ahead until the
-      // next successful sync.
+      // writes). A failed/rejected push leaves local ahead until the next
+      // successful sync — surfaced now instead of failing silently.
+      showGlobalStatus("Couldn't save to GitHub — this change is only on this device. Check your access token under Manage → Accounts & Connections.");
     });
   }
   function persistAndSync() {
     saveLocalData();
     clearTimeout(pushTimer);
     pushTimer = setTimeout(ghPushNow, 500);
+  }
+
+  // =========================================================================
+  // Global status banner — surfaces failures that would otherwise be silent
+  // (e.g. a rejected GitHub push), so a change that only saved locally isn't
+  // mistaken for one that made it to GitHub.
+  // =========================================================================
+  function showGlobalStatus(text) {
+    el.globalStatusMsg.textContent = text + " (tap to dismiss)";
+    el.globalStatusMsg.hidden = false;
+  }
+  function hideGlobalStatus() {
+    el.globalStatusMsg.hidden = true;
   }
 
   // =========================================================================
@@ -903,6 +922,7 @@
       var acctData = data[acctCfg.key];
       var driveBaseUrl = acctCfg.driveBaseUrl;
       var newCount = 0;
+      var failedFolders = [];
       var work = acctData.trackedFolders.map(function (tf) {
         return deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).then(function (result) {
           tf.deltaLink = result.deltaLink;
@@ -921,14 +941,22 @@
             });
             newCount++;
           });
+        }).catch(function () {
+          // One bad folder (renamed/moved/deleted at the Graph level,
+          // throttled, etc.) must not block Sync from checking the rest —
+          // isolate the failure here instead of letting it reject the
+          // whole Promise.all below.
+          failedFolders.push(tf.name);
         });
       });
       Promise.all(work).then(function () {
         persistAndSync();
         render();
-        alert(newCount + " new file" + (newCount === 1 ? "" : "s") + " found.");
-      }).catch(function (err) {
-        alert("Sync failed: " + (err && err.message ? err.message : err));
+        var msg = newCount + " new file" + (newCount === 1 ? "" : "s") + " found.";
+        if (failedFolders.length) {
+          msg += " Couldn't sync: " + failedFolders.join(", ") + ".";
+        }
+        alert(msg);
       });
     }).catch(function (err) {
       alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
@@ -1343,6 +1371,7 @@
     });
 
     el.backdrop.addEventListener("click", closeAllSheets);
+    el.globalStatusMsg.addEventListener("click", hideGlobalStatus);
   }
 
   // =========================================================================
