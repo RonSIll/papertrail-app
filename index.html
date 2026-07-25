@@ -1382,11 +1382,11 @@
     info.appendChild(host);
 
     var visit = document.createElement("a");
-    visit.className = "note-link";
+    visit.className = "note-link-pill";
     visit.href = targetUrl;
     visit.target = "_blank";
     visit.rel = "noopener";
-    visit.textContent = "Visit site ↗";
+    visit.textContent = "Visit";
     info.appendChild(visit);
 
     slot.appendChild(info);
