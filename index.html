@@ -97,6 +97,9 @@
   .preview-filename { font-size: 15px; font-weight: 600; color: var(--text); word-break: break-word; margin-bottom: 8px; }
   .preview-thumb-slot { margin-top: 14px; color: var(--text3); font-size: 13px; }
   .preview-thumb { max-width: 100%; display: block; border: 1px solid var(--border); }
+  .preview-site-slot { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+  .preview-favicon { width: 32px; height: 32px; flex: 0 0 auto; }
+  .preview-site-host { font-size: 13px; color: var(--text2); margin-bottom: 4px; word-break: break-all; }
   .note-row {
     position: relative; overflow: hidden; margin-bottom: 6px;
   }
@@ -1285,6 +1288,19 @@
     var acctCfg = activeAccountConfig();
     if (!acctCfg) { thumbSlot.textContent = "No preview available."; return; }
 
+    if (/\.url$/i.test(note.filename)) {
+      getTokenForActiveAccount().then(function (token) {
+        return fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
+      }).then(function (targetUrl) {
+        if (mySeq !== previewRequestSeq) return;
+        renderSitePreview(thumbSlot, targetUrl);
+      }).catch(function () {
+        if (mySeq !== previewRequestSeq) return;
+        thumbSlot.textContent = "No preview available for this file type.";
+      });
+      return;
+    }
+
     getTokenForActiveAccount().then(function (token) {
       var url = acctCfg.driveBaseUrl + "/items/" + note.driveItemId + "/thumbnails";
       return graphFetch(url, token);
@@ -1303,6 +1319,60 @@
       if (mySeq !== previewRequestSeq) return;
       thumbSlot.textContent = "Couldn't load a preview for this file.";
     });
+  }
+
+  // Internet Shortcut (.url) files are plain text ("[InternetShortcut]\nURL=...").
+  // Graph won't thumbnail them, so instead we read the tiny file itself via its
+  // pre-authenticated downloadUrl (no Authorization header — Graph's own /content
+  // endpoint doesn't survive its redirect to blob storage cleanly with one) and
+  // pull out the target address.
+  function fetchUrlShortcutTarget(driveBaseUrl, itemId, token) {
+    var metaUrl = driveBaseUrl + "/items/" + itemId + "?$select=%40microsoft.graph.downloadUrl";
+    return graphFetch(metaUrl, token).then(function (meta) {
+      var downloadUrl = meta["@microsoft.graph.downloadUrl"];
+      if (!downloadUrl) throw new Error("no download URL");
+      return fetch(downloadUrl).then(function (res) {
+        if (!res.ok) throw new Error("content fetch failed");
+        return res.text();
+      });
+    }).then(function (text) {
+      var match = text.match(/^URL=(.+)$/im);
+      if (!match) throw new Error("no URL= line found");
+      return match[1].trim();
+    });
+  }
+
+  // Favicon + hostname preview for a website shortcut, via Google's keyless
+  // favicon service (an <img> src, so no CORS issue) — no screenshot service,
+  // no third party ever sees more than the domain.
+  function renderSitePreview(slot, targetUrl) {
+    var hostname;
+    try { hostname = new URL(targetUrl).hostname; } catch (e) { hostname = targetUrl; }
+
+    slot.innerHTML = "";
+    slot.className = "preview-site-slot";
+
+    var favicon = document.createElement("img");
+    favicon.className = "preview-favicon";
+    favicon.alt = "";
+    favicon.src = "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(hostname);
+    slot.appendChild(favicon);
+
+    var info = document.createElement("div");
+    var host = document.createElement("div");
+    host.className = "preview-site-host";
+    host.textContent = hostname;
+    info.appendChild(host);
+
+    var visit = document.createElement("a");
+    visit.className = "note-link";
+    visit.href = targetUrl;
+    visit.target = "_blank";
+    visit.rel = "noopener";
+    visit.textContent = "Visit site ↗";
+    info.appendChild(visit);
+
+    slot.appendChild(info);
   }
 
   function renderTrackedFoldersList() {
