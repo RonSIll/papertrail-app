@@ -10,7 +10,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PaperTrail">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUGFwZXJUcmFpbCIsInNob3J0X25hbWUiOiJQYXBlclRyYWlsIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2ZmZmZmZiIsInRoZW1lX2NvbG9yIjoiIzRmNmJmZiIsInN0YXJ0X3VybCI6Ii4iLCJvcmllbnRhdGlvbiI6InBvcnRyYWl0In0=">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUGFwZXJUcmFpbCIsInNob3J0X25hbWUiOiJQYXBlclRyYWlsIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2ZmZmZmZiIsInRoZW1lX2NvbG9yIjoiIzAwMDAwMCIsInN0YXJ0X3VybCI6Ii4iLCJvcmllbnRhdGlvbiI6InBvcnRyYWl0In0=">
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.7.1/lib/msal-browser.min.js"></script>
 <style>
   :root {
@@ -392,6 +393,8 @@
   var searchState = { text: "", tag: null };
   var selectedCardEl = null; // currently selected note-card in the center panel, drives the right-panel preview
   var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
+  var visibleNotes = []; // the currently filtered/sorted note list, in the same order as the rendered cards
+  var selectedIndex = -1; // index into visibleNotes of the selected card, -1 for none
   var pendingConfirm = null;
 
   // =========================================================================
@@ -1186,6 +1189,8 @@
   function renderNoteList() {
     el.content.innerHTML = "";
     selectedCardEl = null;
+    selectedIndex = -1;
+    visibleNotes = [];
     renderPreview(null);
     var acctData = activeAccountData();
     if (!acctData) {
@@ -1209,10 +1214,11 @@
       el.content.appendChild(empty);
       return;
     }
-    notes.forEach(function (n) { el.content.appendChild(renderNoteRow(n)); });
+    visibleNotes = notes;
+    notes.forEach(function (n, i) { el.content.appendChild(renderNoteRow(n, i)); });
   }
 
-  function renderNoteRow(note) {
+  function renderNoteRow(note, index) {
     var row = document.createElement("div");
     row.className = "note-row";
 
@@ -1239,14 +1245,26 @@
 
     card.appendChild(metaRow);
     card.addEventListener("click", function (e) {
-      if (selectedCardEl) selectedCardEl.classList.remove("selected");
-      card.classList.add("selected");
-      selectedCardEl = card;
-      renderPreview(note);
+      selectNoteAtIndex(index);
     });
     row.appendChild(card);
 
     return row;
+  }
+
+  // Selects a note card by its position in visibleNotes — shared by clicking
+  // a card directly and by the Up/Down arrow-key navigation below.
+  function selectNoteAtIndex(i) {
+    if (visibleNotes.length === 0) return;
+    i = Math.max(0, Math.min(i, visibleNotes.length - 1));
+    selectedIndex = i;
+    var card = document.querySelectorAll(".note-card")[i];
+    if (!card) return;
+    if (selectedCardEl) selectedCardEl.classList.remove("selected");
+    card.classList.add("selected");
+    selectedCardEl = card;
+    card.scrollIntoView({ block: "nearest" });
+    renderPreview(visibleNotes[i]);
   }
 
   // Right panel: shows a thumbnail (via Graph's /thumbnails endpoint — no
@@ -1496,6 +1514,22 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && el.backdrop.hidden) {
         el.searchInput.focus();
+      }
+    });
+    // Up/Down: move the note-card selection in the center panel, skipped
+    // while typing in a field (arrow keys belong to the field, e.g. moving
+    // the cursor in the search box) or while a sheet is open.
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (!el.backdrop.hidden) return;
+      var tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (visibleNotes.length === 0) return;
+      e.preventDefault();
+      if (e.key === "ArrowDown") {
+        selectNoteAtIndex(selectedIndex === -1 ? 0 : selectedIndex + 1);
+      } else {
+        selectNoteAtIndex(selectedIndex === -1 ? visibleNotes.length - 1 : selectedIndex - 1);
       }
     });
 
