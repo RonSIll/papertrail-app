@@ -1320,6 +1320,7 @@
       getTokenForActiveAccount().then(function (token) {
         return fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
       }).then(function (targetUrl) {
+        note._resolvedTargetUrl = targetUrl; // cached for the Enter-key shortcut, see openNoteTarget
         if (mySeq !== previewRequestSeq) return;
         renderSitePreview(thumbSlot, targetUrl);
       }).catch(function () {
@@ -1372,14 +1373,29 @@
 
   // Opens a note's "primary" target: a .url shortcut's actual website if it
   // resolves, otherwise (or on any failure) the OneDrive document itself.
-  // Shared by the Enter-key shortcut below. For the .url case, the tab is
-  // opened synchronously (before the async Graph lookup) and pointed at its
-  // real destination once resolved — opening it only after an await would
-  // risk the popup blocker, since the delay can cost the "user gesture"
-  // exemption a plain click/keypress gets.
+  // Shared by the Enter-key shortcut below.
+  //
+  // For the .url case, selecting a note already kicks off renderPreview's
+  // own resolution of the same target URL (cached on the note as
+  // _resolvedTargetUrl once it lands, see renderPreview above) — by the
+  // time a real user reads the card and presses Enter, that lookup has
+  // almost always already finished, so the fast path here opens it with a
+  // plain synchronous window.open, exactly like the preview panel's own
+  // "Visit" link. That matters because the old approach (open a blank tab,
+  // then set its .location once the async Graph lookup resolves) hits
+  // several browsers' delayed-redirect popup protection — Safari and
+  // Firefox in particular treat a location change on an already-open blank
+  // window, made after an intervening fetch, as a suspicious redirect and
+  // silently leave the tab on about:blank instead of following it. The
+  // blank-then-redirect fallback below is kept only for the rare case
+  // where the preview genuinely hasn't resolved yet.
   function openNoteTarget(note) {
     if (!/\.url$/i.test(note.filename)) {
       window.open(note.webUrl, "_blank", "noopener");
+      return;
+    }
+    if (note._resolvedTargetUrl) {
+      window.open(note._resolvedTargetUrl, "_blank", "noopener");
       return;
     }
     var win = window.open("", "_blank", "noopener");
@@ -1388,6 +1404,7 @@
     getTokenForActiveAccount().then(function (token) {
       return fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
     }).then(function (targetUrl) {
+      note._resolvedTargetUrl = targetUrl;
       if (win) win.location = targetUrl;
     }).catch(function () {
       if (win) win.location = note.webUrl;
@@ -1533,7 +1550,12 @@
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
         // starting at the top card regardless of any prior selection.
+        // stopPropagation matters here: blur() below moves activeElement
+        // off the input before this event finishes bubbling, so without it
+        // the global Up/Down listener below sees the same keypress with
+        // activeElement no longer INPUT and advances a second time.
         e.preventDefault();
+        e.stopPropagation();
         el.searchInput.blur();
         selectNoteAtIndex(0);
       }
