@@ -1463,7 +1463,16 @@
   // where the preview genuinely hasn't resolved yet.
   function openNoteTarget(note) {
     if (!/\.url$/i.test(note.filename)) {
-      window.open(note.webUrl, "_blank", "noopener");
+      // Mirrors the Open pill's PC-local-file logic in renderPreview —
+      // this was left on the old always-webUrl behavior when that was
+      // added, so Enter silently diverged from clicking Open until now.
+      var acctCfg = activeAccountConfig();
+      var openFileHref = isDesktopPc() ? buildOpenFileHref(note, acctCfg) : null;
+      if (openFileHref) {
+        window.location.href = openFileHref; // custom protocol, no new tab
+      } else {
+        window.open(note.webUrl, "_blank", "noopener");
+      }
       return;
     }
     if (note._resolvedTargetUrl) {
@@ -1471,7 +1480,7 @@
       return;
     }
     var win = window.open("", "_blank", "noopener");
-    var acctCfg = activeAccountConfig();
+    acctCfg = activeAccountConfig();
     if (!acctCfg) { if (win) win.location = note.webUrl; return; }
     getTokenForActiveAccount().then(function (token) {
       return fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
