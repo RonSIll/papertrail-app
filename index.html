@@ -1490,6 +1490,14 @@
         renderNoteList();
       }
     });
+    // Global Escape: jump focus to search, unless a sheet is open — sheets
+    // have their own inputs (PAT, tag names, etc.) that Escape shouldn't
+    // yank focus out of.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && el.backdrop.hidden) {
+        el.searchInput.focus();
+      }
+    });
 
     el.captureBtn.addEventListener("click", startCapture);
     el.captureTagClose.addEventListener("click", function () { closeSheet("captureTagSheet"); });
