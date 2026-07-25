@@ -470,7 +470,18 @@
   }
   function activeAccountConfig() {
     var key = localConfig.activeAccountKey;
-    return localConfig.accounts.find(function (a) { return a.key === key; }) || null;
+    var acct = localConfig.accounts.find(function (a) { return a.key === key; });
+    if (!acct) return null;
+    // Self-healing backfill: localSyncRoot is a code-level constant, not
+    // something set via the UI, so an account signed in before this field
+    // existed in ACCOUNT_DEFAULTS would otherwise be stuck without it —
+    // patch it onto the stored account the first time it's read, rather
+    // than requiring Ron to sign out and back in.
+    var defaults = ACCOUNT_DEFAULTS[key];
+    if (!acct.localSyncRoot && defaults && defaults.localSyncRoot) {
+      acct.localSyncRoot = defaults.localSyncRoot;
+    }
+    return acct;
   }
 
   // =========================================================================
@@ -581,7 +592,8 @@
             label: defaults.label || result.account.username,
             homeAccountId: homeAccountId,
             tagRootPath: defaults.tagRootPath || "",
-            driveBaseUrl: defaults.driveBaseUrl || "https://graph.microsoft.com/v1.0/me/drive"
+            driveBaseUrl: defaults.driveBaseUrl || "https://graph.microsoft.com/v1.0/me/drive",
+            localSyncRoot: defaults.localSyncRoot || null
           });
           localConfig.activeAccountKey = key;
         } else {
