@@ -1212,17 +1212,8 @@
     path.textContent = note.folderPath;
     metaRow.appendChild(path);
 
-    var link = document.createElement("a");
-    link.className = "note-link";
-    link.href = note.webUrl;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = "Open ↗";
-    metaRow.appendChild(link);
-
     card.appendChild(metaRow);
     card.addEventListener("click", function (e) {
-      if (e.target.closest && e.target.closest("a")) return; // let the Open link behave normally
       if (selectedCardEl) selectedCardEl.classList.remove("selected");
       card.classList.add("selected");
       selectedCardEl = card;
