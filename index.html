@@ -75,7 +75,11 @@
     flex: 0 1 50%; min-width: 0; display: flex; justify-content: center;
   }
   .search-row input[type="text"] {
-    flex: 0 0 auto; width: 360px; border: 1px solid var(--border); background: var(--bg2);
+    /* .search-field-wrap is already flex: 0 1 50% of .search-row, mirroring
+       content-row's 50/50 split; subtracting 16px here matches .content's
+       own 16px+16px padding the same way the note cards are inset, landing
+       on the same rendered width (verified via getBoundingClientRect). */
+    flex: 0 0 auto; width: calc(100% - 16px); border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 10px; font-size: 14px; outline: none;
   }
   .topbar-actions { display: flex; gap: 6px; margin-left: auto; }
