@@ -126,6 +126,11 @@
     font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
     color: var(--accent); background: rgba(79,107,255,0.12); padding: 2px 7px;
   }
+  .note-link-pill {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--accent); background: rgba(79,107,255,0.12); padding: 2px 7px;
+    text-decoration: none; cursor: pointer;
+  }
   .note-path { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   .note-link {
     font-size: 12px; color: var(--accent); text-decoration: none; flex: 0 0 auto;
@@ -1272,7 +1277,7 @@
     tag.textContent = note.tag;
     metaRow.appendChild(tag);
     var link = document.createElement("a");
-    link.className = "note-link";
+    link.className = "note-link-pill";
     link.href = note.webUrl;
     link.target = "_blank";
     link.rel = "noopener";
