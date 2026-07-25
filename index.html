@@ -67,7 +67,11 @@
   }
   .search-row { display: flex; align-items: center; gap: 6px; }
   .search-row input[type="text"] {
-    flex: 0 1 280px; min-width: 0; border: 1px solid var(--border); background: var(--bg2);
+    /* Matches the rendered width of a note card: the center panel is half of
+       content-row (flex: 1 1 0 split with .content-right), minus .content's
+       own 16px+16px padding — expressed here relative to .search-row's own
+       width, which already has the topbar's matching 16px+16px stripped. */
+    flex: 0 1 calc(50% - 16px); min-width: 0; border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 10px; font-size: 14px; outline: none;
   }
   .topbar-actions { display: flex; gap: 6px; margin-left: auto; }
