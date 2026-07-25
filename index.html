@@ -1370,6 +1370,30 @@
     });
   }
 
+  // Opens a note's "primary" target: a .url shortcut's actual website if it
+  // resolves, otherwise (or on any failure) the OneDrive document itself.
+  // Shared by the Enter-key shortcut below. For the .url case, the tab is
+  // opened synchronously (before the async Graph lookup) and pointed at its
+  // real destination once resolved — opening it only after an await would
+  // risk the popup blocker, since the delay can cost the "user gesture"
+  // exemption a plain click/keypress gets.
+  function openNoteTarget(note) {
+    if (!/\.url$/i.test(note.filename)) {
+      window.open(note.webUrl, "_blank", "noopener");
+      return;
+    }
+    var win = window.open("", "_blank", "noopener");
+    var acctCfg = activeAccountConfig();
+    if (!acctCfg) { if (win) win.location = note.webUrl; return; }
+    getTokenForActiveAccount().then(function (token) {
+      return fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
+    }).then(function (targetUrl) {
+      if (win) win.location = targetUrl;
+    }).catch(function () {
+      if (win) win.location = note.webUrl;
+    });
+  }
+
   // Favicon + hostname preview for a website shortcut, via Google's keyless
   // favicon service (an <img> src, so no CORS issue) — no screenshot service,
   // no third party ever sees more than the domain.
@@ -1531,6 +1555,18 @@
       } else {
         selectNoteAtIndex(selectedIndex === -1 ? visibleNotes.length - 1 : selectedIndex - 1);
       }
+    });
+    // Enter: open the selected note's target (a .url shortcut's real site
+    // if it resolves, otherwise the OneDrive document) — same guards as
+    // the arrow-key navigation above.
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      if (!el.backdrop.hidden) return;
+      var tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (selectedIndex === -1 || !visibleNotes[selectedIndex]) return;
+      e.preventDefault();
+      openNoteTarget(visibleNotes[selectedIndex]);
     });
 
     el.captureBtn.addEventListener("click", startCapture);
