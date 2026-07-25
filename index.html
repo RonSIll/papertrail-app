@@ -1495,6 +1495,14 @@
       renderTagSidebar();
       renderNoteList();
     });
+    el.searchInput.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && el.searchInput.value) {
+        el.searchInput.value = "";
+        searchState.text = "";
+        renderTagSidebar();
+        renderNoteList();
+      }
+    });
 
     el.captureBtn.addEventListener("click", startCapture);
     el.captureTagClose.addEventListener("click", function () { closeSheet("captureTagSheet"); });
