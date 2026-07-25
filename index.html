@@ -45,7 +45,9 @@
     background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+  /* App shell: full-height tag sidebar on the left, everything else stacked beside it */
+  #app { display: flex; flex-direction: row; height: 100vh; height: 100dvh; overflow: hidden; }
+  .main-column { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
   /* Top bar: account switcher + search */
   .topbar {
@@ -63,11 +65,12 @@
     background: var(--bg2); color: var(--text); display: flex; align-items: center;
     justify-content: center; cursor: pointer; font-size: 16px;
   }
-  .search-row { display: flex; gap: 6px; }
+  .search-row { display: flex; align-items: center; gap: 6px; }
   .search-row input[type="text"] {
-    flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg2);
+    flex: 0 1 280px; min-width: 0; border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 10px; font-size: 14px; outline: none;
   }
+  .topbar-actions { display: flex; gap: 6px; margin-left: auto; }
   .icon-btn-top {
     flex: 0 0 auto; height: 36px; padding: 0 10px; border: 1px solid var(--border);
     background: var(--bg2); color: var(--text); display: flex; align-items: center;
@@ -76,7 +79,7 @@
   .icon-btn-top svg { pointer-events: none; }
   .icon-btn-top:disabled { opacity: 0.4; cursor: default; }
 
-  /* Content row: tag sidebar (fixed width) + note list */
+  /* Content row: note list + preview panel (tag sidebar now lives outside this row, full height) */
   .content-row { flex: 1 1 auto; display: flex; overflow: hidden; }
   .tag-sidebar {
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw); overflow-y: auto; -webkit-overflow-scrolling: touch;
@@ -201,34 +204,38 @@
 </head>
 <body>
 <div id="app">
-  <div class="topbar">
-    <div class="account-row" id="accountRow">
-      <select class="account-select" id="accountSelect"></select>
-      <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
+  <nav class="tag-sidebar" id="tagSidebar"></nav>
+  <div class="main-column">
+    <div class="topbar">
+      <div class="account-row" id="accountRow">
+        <select class="account-select" id="accountSelect"></select>
+        <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
+      </div>
+      <div class="search-row">
+        <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="topbar-actions">
+          <button class="icon-btn-top" id="captureBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add
+          </button>
+          <button class="icon-btn-top" id="syncBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Sync
+          </button>
+          <button class="icon-btn-top" id="manageBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Manage
+          </button>
+        </div>
+      </div>
     </div>
-    <div class="search-row">
-      <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <button class="icon-btn-top" id="captureBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add
-      </button>
-      <button class="icon-btn-top" id="syncBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Sync
-      </button>
-      <button class="icon-btn-top" id="manageBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        Manage
-      </button>
+
+    <div class="status-msg error" id="globalStatusMsg" hidden></div>
+
+    <div class="content-row">
+      <main class="content" id="content"></main>
+      <aside class="content-right" id="contentRight"></aside>
     </div>
-  </div>
-
-  <div class="status-msg error" id="globalStatusMsg" hidden></div>
-
-  <div class="content-row">
-    <nav class="tag-sidebar" id="tagSidebar"></nav>
-    <main class="content" id="content"></main>
-    <aside class="content-right" id="contentRight"></aside>
   </div>
 </div>
 
