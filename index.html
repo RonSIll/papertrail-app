@@ -191,22 +191,7 @@
   .list-row:last-child { border-bottom: none; }
   .list-row-label { font-size: 14px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .list-row-sub { font-size: 12px; color: var(--text3); }
-  .list-row-remove { border: none; background: none; color: var(--red); font-size: 13px; cursor: pointer; flex: 0 0 auto; }
   .list-row-blocked { color: var(--text3); font-size: 12px; }
-
-  .picker-row {
-    padding: 14px 8px; font-size: 15px; color: var(--text); background: var(--bg);
-    border-bottom: 0.5px solid var(--border); cursor: pointer; display: flex; align-items: center; gap: 8px;
-  }
-  .picker-row:last-child { border-bottom: none; }
-  .picker-row input[type="checkbox"], .picker-row input[type="radio"] { width: 18px; height: 18px; flex: 0 0 auto; }
-
-  .tag-choice-grid { display: flex; flex-direction: column; gap: 6px; }
-  .tag-choice {
-    padding: 12px 10px; border: 1px solid var(--border); background: var(--bg2);
-    color: var(--text); font-size: 14px; cursor: pointer;
-  }
-  .tag-choice.selected { border-color: var(--accent); background: rgba(79,107,255,0.12); color: var(--accent); font-weight: 600; }
 
   .status-msg { font-size: 13px; padding: 10px; margin-bottom: 8px; }
   .status-msg.info { background: var(--bg2); color: var(--text2); }
@@ -232,10 +217,6 @@
           <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
         </div>
         <div class="topbar-actions">
-          <button class="icon-btn-top" id="captureBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add
-          </button>
           <button class="icon-btn-top" id="syncBtn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Sync
@@ -259,25 +240,6 @@
 
 <div class="backdrop" id="backdrop" hidden></div>
 
-<!-- Capture: tag choice sheet -->
-<div class="sheet" id="captureTagSheet" hidden style="max-height:70vh;">
-  <div class="sheet-header"><span></span><span class="sheet-title" id="captureTagTitle">Choose a tag</span><button id="captureTagClose">&#10005;</button></div>
-  <div class="status-msg info" id="captureStatusMsg" hidden></div>
-  <div class="sheet-body"><div class="tag-choice-grid" id="captureTagGrid"></div></div>
-</div>
-
-<!-- OneDrive browse: in-app file/folder picker (replaces the Microsoft
-     OneDrive Picker widget, which is incompatible with our SPA-registered
-     Azure app's sign-in security model) -->
-<div class="sheet" id="browseSheet" hidden style="max-height:75vh;">
-  <div class="sheet-header"><span></span><span class="sheet-title" id="browseTitle">OneDrive</span><button id="browseClose">&#10005;</button></div>
-  <div class="sheet-body" id="browseList"></div>
-  <div class="btn-row">
-    <button class="btn-primary" id="browseSelectBtn">Select</button>
-    <button class="btn-secondary" id="browseCancelBtn">Cancel</button>
-  </div>
-</div>
-
 <!-- Settings home -->
 <div class="sheet" id="settingsHomeSheet" hidden style="max-height:60vh;">
   <div class="sheet-header"><span class="sheet-header-spacer"></span><span class="sheet-title">Manage</span><button id="settingsHomeClose">&#10005;</button></div>
@@ -288,23 +250,16 @@
   </div>
 </div>
 
-<!-- Tracked folders -->
+<!-- Tracked folders (read-only — tracking is fully automatic, driven by Sync) -->
 <div class="sheet" id="trackedFoldersSheet" hidden style="max-height:70vh;">
   <div class="sheet-header"><button id="trackedFoldersBack">&#8249;</button><span class="sheet-title">Tracked Folders</span><span class="sheet-header-spacer"></span></div>
-  <div class="btn-row"><button class="btn-primary" id="addFolderBtn">Add folder…</button></div>
   <div class="sheet-body" id="trackedFoldersList"></div>
 </div>
 
-<!-- Tags -->
+<!-- Tags (read-only — a tag exists only as long as its real folder does) -->
 <div class="sheet" id="tagsSheet" hidden style="max-height:70vh;">
   <div class="sheet-header"><button id="tagsBack">&#8249;</button><span class="sheet-title">Tags</span><span class="sheet-header-spacer"></span></div>
   <div class="sheet-body" id="tagsList"></div>
-</div>
-
-<!-- Reassign-then-delete tag sheet -->
-<div class="sheet" id="reassignSheet" hidden style="max-height:70vh;">
-  <div class="sheet-header"><span></span><span class="sheet-title" id="reassignTitle">Reassign notes</span><button id="reassignClose">&#10005;</button></div>
-  <div class="sheet-body"><div class="tag-choice-grid" id="reassignGrid"></div></div>
 </div>
 
 <!-- Accounts & connections (Azure client id, add/switch accounts, GitHub sync config) -->
@@ -387,9 +342,16 @@
   };
 
   // data = { [accountKey]: { trackedFolders: [...], tags: [...], notes: [...] } }
-  // trackedFolder: { id (drive item id), name (== tag name for leaf folders),
-  //                  parentLabel (e.g. "912 Family" if this is an exposed
-  //                  child), deltaLink, path (folder path for display) }
+  // trackedFolder: { id (drive item id), name (always == its real top-level
+  //                  folder name, and == the tag every note under it gets),
+  //                  deltaLink, path (folder path for display),
+  //                  lastRemovalPromptAt (set only once Sync finds this
+  //                  folder missing and asks about deleting its notes —
+  //                  throttles the confirmation to at most once/day) }.
+  //                  Tracking is fully automatic (every top-level folder
+  //                  under the tag root) — there is no opt-in add/remove
+  //                  step, and no subfolder-as-tag exception; a note's tag
+  //                  is always its nearest top-level ancestor folder.
   // note: { id, filename, tag, webUrl, folderPath, driveItemId, capturedAt }
   var data = {};
 
@@ -401,6 +363,7 @@
   var visibleNotes = []; // the currently filtered/sorted note list, in the same order as the rendered cards
   var selectedIndex = -1; // index into visibleNotes of the selected card, -1 for none
   var pendingConfirm = null;
+  var pendingConfirmCancel = null; // optional — runs if the confirm sheet is dismissed/cancelled instead of confirmed
 
   // =========================================================================
   // DOM refs
@@ -409,13 +372,10 @@
   function cacheEls() {
     [
       "accountRow","accountSelect","addAccountBtn","searchInput","content","contentRight","tagSidebar","globalStatusMsg",
-      "captureBtn","syncBtn","manageBtn","backdrop",
-      "captureTagSheet","captureTagTitle","captureTagGrid","captureTagClose","captureStatusMsg",
-      "browseSheet","browseTitle","browseList","browseClose","browseSelectBtn","browseCancelBtn",
+      "syncBtn","manageBtn","backdrop",
       "settingsHomeSheet","settingsHomeClose",
-      "trackedFoldersSheet","trackedFoldersBack","trackedFoldersList","addFolderBtn",
+      "trackedFoldersSheet","trackedFoldersBack","trackedFoldersList",
       "tagsSheet","tagsBack","tagsList",
-      "reassignSheet","reassignTitle","reassignGrid","reassignClose",
       "accountsSheet","accountsBack","azureClientId","accountsList","accountsAddBtn",
       "ghOwner","ghRepo","ghPat","ghSaveBtn","ghSyncNote",
       "confirmSheet","confirmText","confirmYes","confirmNo","confirmClose"
@@ -423,8 +383,8 @@
   }
 
   var ALL_SHEETS = [
-    "captureTagSheet","browseSheet","settingsHomeSheet","trackedFoldersSheet",
-    "tagsSheet","reassignSheet","accountsSheet","confirmSheet"
+    "settingsHomeSheet","trackedFoldersSheet",
+    "tagsSheet","accountsSheet","confirmSheet"
   ];
   function openSheet(id) {
     el.backdrop.hidden = false;
@@ -549,10 +509,12 @@
 
   // =========================================================================
   // Global status banner — surfaces failures that would otherwise be silent
-  // (e.g. a rejected GitHub push), so a change that only saved locally isn't
-  // mistaken for one that made it to GitHub.
+  // (e.g. a rejected GitHub push), and also carries Sync's after-the-fact
+  // summaries (new/renamed/removed folders, re-tagged files). type controls
+  // styling: "error" (default, red), "success" (green), or "info" (neutral).
   // =========================================================================
-  function showGlobalStatus(text) {
+  function showGlobalStatus(text, type) {
+    el.globalStatusMsg.className = "status-msg " + (type || "error");
     el.globalStatusMsg.textContent = text + " (tap to dismiss)";
     el.globalStatusMsg.hidden = false;
   }
@@ -609,7 +571,13 @@
     });
   }
 
-  function getTokenForActiveAccount() {
+  // opts.silentOnly skips the acquireTokenPopup fallback — used by
+  // auto-sync-on-open, since a popup not triggered by a direct user gesture
+  // is very likely blocked by the browser anyway, and a blocked-popup error
+  // is a worse first impression than just deferring to the next manual
+  // Sync click (which runs with a real click's popup allowance).
+  function getTokenForActiveAccount(opts) {
+    opts = opts || {};
     var acctCfg = activeAccountConfig();
     return initMsal().then(function (app) {
       if (!app || !acctCfg) return Promise.reject(new Error("No active account"));
@@ -617,7 +585,8 @@
       if (!msalAccount) return Promise.reject(new Error("Account not found in MSAL cache"));
       return app.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) {
         return r.accessToken;
-      }).catch(function () {
+      }).catch(function (err) {
+        if (opts.silentOnly) return Promise.reject(err);
         return app.acquireTokenPopup({ scopes: GRAPH_SCOPES, account: msalAccount }).then(function (r) { return r.accessToken; });
       });
     });
@@ -639,10 +608,6 @@
   }
   function listChildrenById(driveBaseUrl, itemId, token) {
     var url = driveBaseUrl + "/items/" + itemId + "/children?$top=200";
-    return graphFetch(url, token).then(collectAllPages.bind(null, token));
-  }
-  function listRootChildren(driveBaseUrl, token) {
-    var url = driveBaseUrl + "/root/children?$top=200";
     return graphFetch(url, token).then(collectAllPages.bind(null, token));
   }
   function collectAllPages(token, firstPage) {
@@ -735,436 +700,259 @@
   }
 
   // =========================================================================
-  // Tag-source-of-truth: enumerate candidate folders for adding to the
-  // tracked list. A folder that itself contains named subfolders exposes
-  // those subfolders as the choosable units instead of itself (the "912
-  // Family" routing rule) — detected live by checking for child folders.
+  // Sync — the only way files enter PaperTrail now (capture/Add is gone).
+  // Each run reconciles the real OneDrive structure against what's tracked:
+  // new top-level folders are tracked and their files captured automatically;
+  // a tracked folder whose name changed relabels every note under its old
+  // tag; a tracked folder missing from the real listing pauses for
+  // confirmation before its notes are deleted (the one destructive case);
+  // and a file that moved from one tracked folder to another has its
+  // existing note re-tagged in place rather than being deleted and recreated.
+  // Runs automatically on app open (silently unless something changed) and
+  // on demand via the Sync button.
   // =========================================================================
-  function resolveAddableUnitsForFolder(driveBaseUrl, folderItem, token) {
-    return listChildrenById(driveBaseUrl, folderItem.id, token).then(function (children) {
-      var subfolders = children.filter(function (c) { return c.folder; });
-      if (subfolders.length === 0) {
-        return [{ id: folderItem.id, name: folderItem.name, path: folderItem.parentReference.path + "/" + folderItem.name }];
-      }
-      return subfolders.map(function (sf) {
-        return { id: sf.id, name: sf.name, path: (folderItem.parentReference.path + "/" + folderItem.name + "/" + sf.name) };
-      });
-    });
-  }
-
-  // =========================================================================
-  // Capture flow
-  // =========================================================================
-  function startCapture() {
-    var acctCfg = activeAccountConfig();
-    if (!acctCfg) { alert("Add and select an account first (Manage → Accounts & Connections)."); return; }
-    getTokenForActiveAccount().then(function (token) {
-      openBrowseSheet(acctCfg, token, {
-        singleSelect: false,
-        foldersOnly: false,
-        onConfirm: function (items) { handlePickerResult(items, acctCfg, token); }
-      });
-    }).catch(function (err) {
-      alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
-    });
-  }
-
-  // =========================================================================
-  // OneDrive browse sheet — in-app replacement for the Microsoft OneDrive
-  // Picker widget, which cannot be reused here: its own internal sign-in
-  // flow (implicit grant) is blocked by our SPA-registered Azure app, and
-  // its api.onedrive.com mode rejects our Graph-scoped MSAL token. This
-  // browses Microsoft Graph directly with the token we already have.
-  // =========================================================================
-  var browseState = null;
-
-  function openBrowseSheet(acctCfg, token, opts) {
-    browseState = {
-      acctCfg: acctCfg,
-      token: token,
-      stack: [{ id: null, name: "OneDrive" }],
-      selected: {},
-      singleSelect: !!opts.singleSelect,
-      foldersOnly: !!opts.foldersOnly,
-      onConfirm: opts.onConfirm
+  function makeNote(item, tag, acctCfg) {
+    return {
+      id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ("n-" + Date.now() + "-" + Math.random().toString(16).slice(2)),
+      filename: item.name,
+      tag: tag,
+      webUrl: item.webUrl,
+      folderPath: folderBreadcrumb(item.parentReference ? item.parentReference.path : "", acctCfg.tagRootPath),
+      driveItemId: item.id,
+      capturedAt: new Date().toISOString()
     };
-    el.browseSelectBtn.textContent = opts.singleSelect ? "Select folder" : "Select";
-    renderBrowseFolder();
-    openSheet("browseSheet");
   }
 
-  function renderBrowseFolder() {
-    var top = browseState.stack[browseState.stack.length - 1];
-    el.browseTitle.textContent = top.name;
-    el.browseList.innerHTML = "";
-    var loading = document.createElement("div");
-    loading.className = "empty-state";
-    loading.textContent = "Loading…";
-    el.browseList.appendChild(loading);
-    var driveBaseUrl = browseState.acctCfg.driveBaseUrl;
-    var fetchP = top.id === null
-      ? listRootChildren(driveBaseUrl, browseState.token)
-      : listChildrenById(driveBaseUrl, top.id, browseState.token);
-    fetchP.then(function (children) {
-      if (browseState.foldersOnly) children = children.filter(function (c) { return c.folder; });
-      renderBrowseList(children);
-    }).catch(function (err) {
-      el.browseList.innerHTML = "";
-      var e = document.createElement("div");
-      e.className = "empty-state";
-      e.textContent = "Couldn't load this folder: " + (err && err.message ? err.message : err);
-      el.browseList.appendChild(e);
-    });
-  }
+  // Guards against an auto-sync-on-open overlapping a manual Sync click (or
+  // two rapid clicks) — both would otherwise read and write the same
+  // trackedFolders/notes arrays concurrently, risking duplicate tracked
+  // folders or lost updates. A second call while one is running is just a
+  // no-op rather than queued, since the in-flight run will already pick up
+  // whatever it was going to find.
+  var syncInProgress = false;
 
-  function renderBrowseList(children) {
-    el.browseList.innerHTML = "";
-    if (browseState.stack.length > 1) {
-      var up = document.createElement("div");
-      up.className = "picker-row";
-      up.style.color = "var(--text3)";
-      up.textContent = "⬆ .. (up one level)";
-      up.addEventListener("click", function () {
-        browseState.stack.pop();
-        renderBrowseFolder();
-      });
-      el.browseList.appendChild(up);
+  function runSync(opts) {
+    opts = opts || {};
+    if (syncInProgress) return Promise.resolve();
+    var acctCfg = activeAccountConfig();
+    if (!acctCfg) {
+      if (!opts.auto) showGlobalStatus("Select an account first.", "error");
+      return Promise.resolve();
     }
-    if (children.length === 0) {
-      var empty = document.createElement("div");
-      empty.className = "empty-state";
-      empty.textContent = "This folder is empty.";
-      el.browseList.appendChild(empty);
-      return;
-    }
-    children.slice().sort(function (a, b) {
-      if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    }).forEach(function (item) {
-      var row = document.createElement("div");
-      row.className = "picker-row";
-
-      var cb = document.createElement("input");
-      cb.type = browseState.singleSelect ? "radio" : "checkbox";
-      if (browseState.singleSelect) cb.name = "browseSelect";
-      cb.checked = !!browseState.selected[item.id];
-      cb.addEventListener("change", function () {
-        if (browseState.singleSelect) browseState.selected = {};
-        if (cb.checked) browseState.selected[item.id] = item; else delete browseState.selected[item.id];
-      });
-      row.appendChild(cb);
-
-      var label = document.createElement("span");
-      label.style.flex = "1 1 auto";
-      label.textContent = (item.folder ? "📁 " : "") + item.name;
-      row.appendChild(label);
-
-      if (item.folder) {
-        var openBtn = document.createElement("button");
-        openBtn.className = "icon-btn-sm";
-        openBtn.title = "Open folder";
-        openBtn.textContent = "›";
-        openBtn.addEventListener("click", function (e) {
-          e.stopPropagation();
-          browseState.stack.push({ id: item.id, name: item.name });
-          renderBrowseFolder();
-        });
-        row.appendChild(openBtn);
+    syncInProgress = true;
+    el.syncBtn.disabled = true;
+    return getTokenForActiveAccount({ silentOnly: !!opts.auto }).then(function (token) {
+      return performSync(acctCfg, token);
+    }).then(function (summary) {
+      if (!opts.auto || summaryHasChanges(summary)) {
+        showGlobalStatus(buildSyncSummaryText(summary), summary.failedFolders.length ? "error" : "success");
       }
-
-      row.addEventListener("click", function (e) {
-        if (e.target === cb) return;
-        cb.checked = !cb.checked;
-        cb.dispatchEvent(new Event("change"));
-      });
-
-      el.browseList.appendChild(row);
+    }).catch(function (err) {
+      // Auto-sync failing silently (e.g. no cached session yet, popup
+      // blocked) shouldn't nag on every page load — only surface it for a
+      // manual click, where a popup fallback is also allowed to run.
+      if (!opts.auto) showGlobalStatus("Sync failed: " + (err && err.message ? err.message : err), "error");
+    }).then(function () {
+      syncInProgress = false;
+      el.syncBtn.disabled = false;
     });
   }
 
-  function handlePickerResult(pickedItems, acctCfg, token) {
+  function performSync(acctCfg, token) {
+    var acctData = activeAccountData();
     var driveBaseUrl = acctCfg.driveBaseUrl;
-    var fileTasks = [];
-    var folderPicks = pickedItems.filter(function (i) { return i.folder; });
-    var filePicks = pickedItems.filter(function (i) { return !i.folder; });
+    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, failedFolders: [] };
 
-    filePicks.forEach(function (f) { fileTasks.push(Promise.resolve({ file: f, sourceFolder: null })); });
+    return listChildrenByPath(driveBaseUrl, acctCfg.tagRootPath, token).then(function (rootChildren) {
+      var realFolders = rootChildren.filter(function (c) { return c.folder; });
+      var realById = {};
+      realFolders.forEach(function (f) { realById[f.id] = f; });
 
-    var folderWalks = folderPicks.map(function (folderItem) {
-      return walkFolderRecursive(driveBaseUrl, folderItem.id, token).then(function (files) {
-        return { folderItem: folderItem, files: files };
-      });
-    });
+      var trackedById = {};
+      acctData.trackedFolders.forEach(function (tf) { trackedById[tf.id] = tf; });
 
-    Promise.all(folderWalks).then(function (walkedFolders) {
-      var totalCount = filePicks.length;
-      walkedFolders.forEach(function (w) { totalCount += w.files.length; });
+      var missingFolders = acctData.trackedFolders.filter(function (tf) { return !realById[tf.id]; });
+      var newFolders = realFolders.filter(function (f) { return !trackedById[f.id]; });
+      var continuingFolders = acctData.trackedFolders.filter(function (tf) { return realById[tf.id]; });
 
-      if (totalCount === 0) { alert("No files found in the current selection."); return; }
-      var proceed = confirm(totalCount + " file" + (totalCount === 1 ? "" : "s") + " will be captured. Continue?");
-      if (!proceed) return;
-
-      showCaptureTagChoice(acctCfg, function (chosenTag) {
-        var allFileEntries = filePicks.map(function (f) { return { file: f, sourceFolder: null }; });
-        walkedFolders.forEach(function (w) {
-          w.files.forEach(function (f) { allFileEntries.push({ file: f, sourceFolder: w.folderItem }); });
-        });
-        createNotesFromFiles(allFileEntries, chosenTag, acctCfg);
-
-        // Register each picked folder into the tracked-folder list and seed
-        // its delta token immediately (must happen at capture time, not
-        // deferred to the first Sync click — see Workflows to define).
-        walkedFolders.forEach(function (w) {
-          deltaQuery(driveBaseUrl, w.folderItem.id, token, null).then(function (result) {
-            var acctData = data[acctCfg.key];
-            var already = acctData.trackedFolders.find(function (tf) { return tf.id === w.folderItem.id; });
-            if (!already) {
-              acctData.trackedFolders.push({
-                id: w.folderItem.id,
-                name: chosenTag,
-                path: w.folderItem.parentReference.path + "/" + w.folderItem.name,
-                deltaLink: result.deltaLink
-              });
-              persistAndSync();
-              renderTrackedFoldersList();
-              renderTagSidebar();
-            }
-          });
-        });
-      });
-    });
-  }
-
-  function showCaptureTagChoice(acctCfg, onChosen) {
-    var acctData = data[acctCfg.key];
-    var tags = acctData.trackedFolders.map(function (tf) { return tf.name; });
-    if (tags.length === 0) {
-      el.captureStatusMsg.textContent = "No tags yet — add a tracked folder under Manage first, or pick a folder that isn't tracked yet and it will register itself once tagged below.";
-      el.captureStatusMsg.hidden = false;
-    } else {
-      el.captureStatusMsg.hidden = true;
-    }
-    el.captureTagGrid.innerHTML = "";
-    var selected = null;
-    tags.forEach(function (t) {
-      var btn = document.createElement("div");
-      btn.className = "tag-choice";
-      btn.textContent = t;
-      btn.addEventListener("click", function () {
-        Array.prototype.forEach.call(el.captureTagGrid.children, function (c) { c.classList.remove("selected"); });
-        btn.classList.add("selected");
-        selected = t;
-      });
-      el.captureTagGrid.appendChild(btn);
-    });
-    var confirmBtn = document.createElement("button");
-    confirmBtn.className = "btn-primary";
-    confirmBtn.style.marginTop = "12px";
-    confirmBtn.style.width = "100%";
-    confirmBtn.style.padding = "12px";
-    confirmBtn.style.border = "none";
-    confirmBtn.textContent = "Use this tag";
-    confirmBtn.addEventListener("click", function () {
-      if (!selected) { alert("Pick a tag first."); return; }
-      closeSheet("captureTagSheet");
-      onChosen(selected);
-    });
-    el.captureTagGrid.appendChild(confirmBtn);
-    openSheet("captureTagSheet");
-  }
-
-  function createNotesFromFiles(fileEntries, tag, acctCfg) {
-    var acctData = data[acctCfg.key];
-    fileEntries.forEach(function (entry) {
-      var f = entry.file;
-      var already = acctData.notes.find(function (n) { return n.driveItemId === f.id; });
-      if (already) return; // avoid duplicates on re-capture of the same file
-      acctData.notes.push({
-        id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ("n-" + Date.now() + "-" + Math.random().toString(16).slice(2)),
-        filename: f.name,
-        tag: tag,
-        webUrl: f.webUrl,
-        folderPath: folderBreadcrumb(f.parentReference.path, acctCfg.tagRootPath),
-        driveItemId: f.id,
-        capturedAt: new Date().toISOString()
-      });
-    });
-    // Any tag typed/chosen here that isn't yet a tracked folder's name
-    // becomes trackable only once a real matching OneDrive folder exists
-    // and is added via Manage — this capture step never free-types a tag
-    // not already backed by a tracked folder (tag-source-of-truth rule).
-    persistAndSync();
-    render();
-  }
-
-  // =========================================================================
-  // Sync — re-checks every tracked folder via delta query; creates notes for
-  // new files and removes the note for any file the delta feed reports
-  // deleted. A renamed/moved file surfaces as a delete-plus-add pair in the
-  // same delta batch, so it's handled correctly too. This is Ron's intended
-  // deletion workflow: remove the file in OneDrive, then Sync (not just a
-  // page reload, which only re-pulls the last-synced GitHub data).
-  // =========================================================================
-  function runSync() {
-    var acctCfg = activeAccountConfig();
-    if (!acctCfg) { alert("Select an account first."); return; }
-    getTokenForActiveAccount().then(function (token) {
-      var acctData = data[acctCfg.key];
-      var driveBaseUrl = acctCfg.driveBaseUrl;
-      var newCount = 0;
-      var removedCount = 0;
-      var failedFolders = [];
-      var work = acctData.trackedFolders.map(function (tf) {
-        return deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).then(function (result) {
-          tf.deltaLink = result.deltaLink;
-          result.items.forEach(function (item) {
-            if (item.deleted) {
-              var idx = acctData.notes.findIndex(function (n) { return n.driveItemId === item.id; });
-              if (idx !== -1) { acctData.notes.splice(idx, 1); removedCount++; }
-              return;
-            }
-            if (item.folder) return;
-            var already = acctData.notes.find(function (n) { return n.driveItemId === item.id; });
-            if (already) return;
-            acctData.notes.push({
-              id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ("n-" + Date.now() + "-" + Math.random().toString(16).slice(2)),
-              filename: item.name,
-              tag: tf.name,
-              webUrl: item.webUrl,
-              folderPath: folderBreadcrumb(item.parentReference ? item.parentReference.path : "", acctCfg.tagRootPath),
-              driveItemId: item.id,
-              capturedAt: new Date().toISOString()
-            });
-            newCount++;
-          });
-        }).catch(function () {
-          // One bad folder (renamed/moved/deleted at the Graph level,
-          // throttled, etc.) must not block Sync from checking the rest —
-          // isolate the failure here instead of letting it reject the
-          // whole Promise.all below.
-          failedFolders.push(tf.name);
-        });
-      });
-      Promise.all(work).then(function () {
-        persistAndSync();
-        render();
-        var msg = newCount + " new file" + (newCount === 1 ? "" : "s") + " found.";
-        if (removedCount) {
-          msg += " " + removedCount + " note" + (removedCount === 1 ? "" : "s") + " removed for deleted files.";
+      // Folder renames: a tracked folder's own name changed. Applied
+      // automatically, no confirmation gate — only a removal is destructive
+      // enough to pause for.
+      continuingFolders.forEach(function (tf) {
+        var real = realById[tf.id];
+        if (real.name !== tf.name) {
+          var oldName = tf.name;
+          tf.name = real.name;
+          tf.path = real.parentReference.path + "/" + real.name;
+          var relabeled = 0;
+          acctData.notes.forEach(function (n) { if (n.tag === oldName) { n.tag = real.name; relabeled++; } });
+          summary.renamedFolders.push({ oldName: oldName, newName: real.name, count: relabeled });
         }
-        if (failedFolders.length) {
-          msg += " Couldn't sync: " + failedFolders.join(", ") + ".";
-        }
-        alert(msg);
       });
-    }).catch(function (err) {
-      alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
-    });
-  }
 
-  // =========================================================================
-  // Manage — tracked folders, tags, notes
-  // =========================================================================
-  function addTrackedFolder() {
-    var acctCfg = activeAccountConfig();
-    if (!acctCfg) { alert("Select an account first."); return; }
-    getTokenForActiveAccount().then(function (token) {
-      openBrowseSheet(acctCfg, token, {
-        singleSelect: true,
-        foldersOnly: true,
-        onConfirm: function (items) {
-          var folderItem = items[0];
-          resolveAddableUnitsForFolder(acctCfg.driveBaseUrl, folderItem, token).then(function (units) {
-            units.forEach(function (u) {
-              var acctData = data[acctCfg.key];
-              var already = acctData.trackedFolders.find(function (tf) { return tf.id === u.id; });
-              if (already) return;
-              deltaQuery(acctCfg.driveBaseUrl, u.id, token, null).then(function (deltaResult) {
-                acctData.trackedFolders.push({ id: u.id, name: u.name, path: u.path, deltaLink: deltaResult.deltaLink });
-                persistAndSync();
-                renderTrackedFoldersList();
-                renderTagSidebar();
+      return resolveRemovals(missingFolders, acctData, summary).then(function () {
+        var deltaTargets = acctData.trackedFolders.filter(function (tf) { return realById[tf.id]; });
+
+        // Phase A: gather delta results for continuing folders, and a full
+        // recursive walk for brand-new ones — without mutating notes yet,
+        // so a file that moved between two folders in this same Sync can be
+        // reconciled once, rather than raced by whichever promise settles
+        // first.
+        var perFolderDeltaItems = [];
+        var newFolderRecords = [];
+        var gatherWork = [];
+
+        deltaTargets.forEach(function (tf) {
+          gatherWork.push(
+            deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).then(function (result) {
+              tf.deltaLink = result.deltaLink;
+              perFolderDeltaItems.push({ tf: tf, items: result.items });
+            }).catch(function () { summary.failedFolders.push(tf.name); })
+          );
+        });
+
+        newFolders.forEach(function (f) {
+          gatherWork.push(
+            walkFolderRecursive(driveBaseUrl, f.id, token).then(function (files) {
+              return deltaQuery(driveBaseUrl, f.id, token, null).then(function (deltaResult) {
+                var tf = { id: f.id, name: f.name, path: f.parentReference.path + "/" + f.name, deltaLink: deltaResult.deltaLink };
+                acctData.trackedFolders.push(tf);
+                newFolderRecords.push({ tf: tf, files: files });
               });
+            }).catch(function () { summary.failedFolders.push(f.name); })
+          );
+        });
+
+        return Promise.all(gatherWork).then(function () {
+          // Phase B: reconcile every delta/walk result together. A file
+          // that shows up "deleted" in its old folder's delta and "new" in
+          // its new folder's delta (or a new folder's fresh walk) is a
+          // move, matched by its stable drive-item id — re-tag the
+          // existing note in place instead of deleting and recreating it.
+          var deletedIds = {};
+          var createdItems = {};
+
+          perFolderDeltaItems.forEach(function (rec) {
+            rec.items.forEach(function (item) {
+              if (item.deleted) { deletedIds[item.id] = true; return; }
+              if (item.folder) return;
+              createdItems[item.id] = { item: item, tagName: rec.tf.name };
             });
           });
-        }
+          newFolderRecords.forEach(function (rec) {
+            rec.files.forEach(function (file) {
+              createdItems[file.id] = { item: file, tagName: rec.tf.name };
+            });
+          });
+
+          var notesByItemId = {};
+          acctData.notes.forEach(function (n) { notesByItemId[n.driveItemId] = n; });
+
+          Object.keys(createdItems).forEach(function (itemId) {
+            var c = createdItems[itemId];
+            var existing = notesByItemId[itemId];
+            if (existing) {
+              if (existing.tag !== c.tagName) {
+                existing.tag = c.tagName;
+                existing.folderPath = folderBreadcrumb(c.item.parentReference ? c.item.parentReference.path : "", acctCfg.tagRootPath);
+                summary.movedFileCount++;
+              }
+              delete deletedIds[itemId]; // matched by a create elsewhere — not really gone
+            } else {
+              var note = makeNote(c.item, c.tagName, acctCfg);
+              acctData.notes.push(note);
+              notesByItemId[itemId] = note;
+              summary.newFileCount++;
+            }
+          });
+
+          Object.keys(deletedIds).forEach(function (itemId) {
+            var idx = acctData.notes.findIndex(function (n) { return n.driveItemId === itemId; });
+            if (idx !== -1) { acctData.notes.splice(idx, 1); summary.deletedFileCount++; }
+          });
+
+          newFolderRecords.forEach(function (rec) {
+            var count = acctData.notes.filter(function (n) { return n.tag === rec.tf.name; }).length;
+            summary.newFolders.push({ name: rec.tf.name, count: count });
+          });
+        });
       });
-    }).catch(function (err) {
-      alert("Couldn't get an access token: " + (err && err.message ? err.message : err));
-    });
-  }
-
-  function removeTrackedFolder(folderId) {
-    var acctData = activeAccountData();
-    var tf = acctData.trackedFolders.find(function (t) { return t.id === folderId; });
-    if (!tf) return;
-    var noteCount = acctData.notes.filter(function (n) { return n.tag === tf.name; }).length;
-    requestConfirm(
-      "Stop tracking \"" + tf.name + "\" and delete its " + noteCount + " note" + (noteCount === 1 ? "" : "s") + "? Source files in OneDrive are never touched.",
-      function () {
-        acctData.trackedFolders = acctData.trackedFolders.filter(function (t) { return t.id !== folderId; });
-        acctData.notes = acctData.notes.filter(function (n) { return n.tag !== tf.name; });
-        persistAndSync();
-        renderTrackedFoldersList();
-        if (searchState.tag === tf.name) searchState.tag = null;
-        render();
-      }
-    );
-  }
-
-  function deleteTag(tagName) {
-    var acctData = activeAccountData();
-    var count = acctData.notes.filter(function (n) { return n.tag === tagName; }).length;
-    if (count > 0) {
-      openReassignSheet(tagName, count);
-      return;
-    }
-    requestConfirm("Delete tag \"" + tagName + "\"? No notes use it.", function () {
-      acctData.trackedFolders = acctData.trackedFolders.filter(function (tf) { return tf.name !== tagName; });
+    }).then(function () {
       persistAndSync();
+      render();
+      renderTrackedFoldersList();
       renderTagsList();
-      if (searchState.tag === tagName) searchState.tag = null;
-      renderTagSidebar();
-      renderNoteList();
+      return summary;
     });
   }
 
-  function openReassignSheet(tagName, count) {
-    var acctData = activeAccountData();
-    el.reassignTitle.textContent = count + " note" + (count === 1 ? "" : "s") + " still use \"" + tagName + "\" — reassign to:";
-    el.reassignGrid.innerHTML = "";
-    var otherTags = acctData.trackedFolders.map(function (tf) { return tf.name; }).filter(function (t) { return t !== tagName; });
-    if (otherTags.length === 0) {
-      var msg = document.createElement("div");
-      msg.className = "list-row-blocked";
-      msg.textContent = "No other tags exist yet to reassign to. Add another tracked folder first.";
-      el.reassignGrid.appendChild(msg);
+  // A missing tracked folder is the one destructive case: pauses for
+  // Ron's OK before deleting its notes. If declined, it won't re-prompt on
+  // every subsequent app-open Sync — only once a day at most, so auto-sync
+  // never turns into a recurring interruption.
+  function resolveRemovals(missingFolders, acctData, summary) {
+    var toPrompt = missingFolders.filter(function (tf) {
+      if (!tf.lastRemovalPromptAt) return true;
+      var hoursSince = (Date.now() - new Date(tf.lastRemovalPromptAt).getTime()) / 36e5;
+      return hoursSince >= 24;
+    });
+    return toPrompt.reduce(function (chain, tf) {
+      return chain.then(function () { return promptFolderRemoval(tf, acctData, summary); });
+    }, Promise.resolve());
+  }
+
+  function promptFolderRemoval(tf, acctData, summary) {
+    return new Promise(function (resolve) {
+      tf.lastRemovalPromptAt = new Date().toISOString();
+      var noteCount = acctData.notes.filter(function (n) { return n.tag === tf.name; }).length;
+      el.confirmText.textContent = "\"" + tf.name + "\" is missing from OneDrive (deleted or moved out of Projects). Delete its " + noteCount + " note" + (noteCount === 1 ? "" : "s") + " from PaperTrail? Source files aren't affected either way.";
+      pendingConfirm = function () {
+        acctData.trackedFolders = acctData.trackedFolders.filter(function (t) { return t.id !== tf.id; });
+        acctData.notes = acctData.notes.filter(function (n) { return n.tag !== tf.name; });
+        if (searchState.tag === tf.name) searchState.tag = null;
+        summary.removedFolders.push({ name: tf.name, count: noteCount, deleted: true });
+        resolve();
+      };
+      pendingConfirmCancel = function () {
+        summary.removedFolders.push({ name: tf.name, count: noteCount, deleted: false });
+        resolve();
+      };
+      openSheet("confirmSheet");
+    });
+  }
+
+  function buildSyncSummaryText(summary) {
+    var parts = [];
+    if (summary.newFolders.length) {
+      parts.push(summary.newFolders.map(function (f) { return f.name + " added (" + f.count + " note" + (f.count === 1 ? "" : "s") + ")"; }).join(", "));
     }
-    otherTags.forEach(function (t) {
-      var btn = document.createElement("div");
-      btn.className = "tag-choice";
-      btn.textContent = t;
-      btn.addEventListener("click", function () {
-        acctData.notes.forEach(function (n) { if (n.tag === tagName) n.tag = t; });
-        acctData.trackedFolders = acctData.trackedFolders.filter(function (tf) { return tf.name !== tagName; });
-        persistAndSync();
-        closeSheet("reassignSheet");
-        renderTagsList();
-        if (searchState.tag === tagName) searchState.tag = t;
-        render();
-      });
-      el.reassignGrid.appendChild(btn);
-    });
-    openSheet("reassignSheet");
+    if (summary.renamedFolders.length) {
+      parts.push(summary.renamedFolders.map(function (r) { return r.oldName + " renamed to " + r.newName + " (" + r.count + " note" + (r.count === 1 ? "" : "s") + " relabeled)"; }).join(", "));
+    }
+    if (summary.movedFileCount) {
+      parts.push(summary.movedFileCount + " file" + (summary.movedFileCount === 1 ? "" : "s") + " re-tagged after moving folders");
+    }
+    if (summary.newFileCount) {
+      parts.push(summary.newFileCount + " new file" + (summary.newFileCount === 1 ? "" : "s") + " found");
+    }
+    if (summary.deletedFileCount) {
+      parts.push(summary.deletedFileCount + " note" + (summary.deletedFileCount === 1 ? "" : "s") + " removed for deleted files");
+    }
+    var actuallyRemoved = summary.removedFolders.filter(function (r) { return r.deleted; });
+    if (actuallyRemoved.length) {
+      parts.push(actuallyRemoved.map(function (r) { return r.name + " removed (" + r.count + " note" + (r.count === 1 ? "" : "s") + " deleted)"; }).join(", "));
+    }
+    if (summary.failedFolders.length) {
+      parts.push("couldn't sync: " + summary.failedFolders.join(", "));
+    }
+    if (parts.length === 0) return "Sync complete — no changes found.";
+    return "Sync: " + parts.join(". ") + ".";
   }
 
-  // =========================================================================
-  // Confirm sheet (generic)
-  // =========================================================================
-  function requestConfirm(text, onYes) {
-    el.confirmText.textContent = text;
-    pendingConfirm = onYes;
-    openSheet("confirmSheet");
+  function summaryHasChanges(summary) {
+    return summary.newFolders.length > 0 || summary.renamedFolders.length > 0 ||
+      summary.movedFileCount > 0 || summary.newFileCount > 0 || summary.deletedFileCount > 0 ||
+      summary.removedFolders.some(function (r) { return r.deleted; }) || summary.failedFolders.length > 0;
   }
 
   // =========================================================================
@@ -1525,17 +1313,21 @@
     slot.appendChild(info);
   }
 
+  // Read-only — every top-level OneDrive folder under the tag root is
+  // tracked automatically. To stop tracking one, remove or rename it in
+  // OneDrive itself and Sync will reconcile (see performSync).
   function renderTrackedFoldersList() {
     var acctData = activeAccountData();
+    if (!el.trackedFoldersList) return; // sheet may not be open/rendered yet
     el.trackedFoldersList.innerHTML = "";
     if (!acctData || acctData.trackedFolders.length === 0) {
       var empty = document.createElement("div");
       empty.className = "list-row-blocked";
-      empty.textContent = "No tracked folders yet — use \"Add folder…\" above.";
+      empty.textContent = "No tracked folders yet — run Sync once an account is signed in.";
       el.trackedFoldersList.appendChild(empty);
       return;
     }
-    acctData.trackedFolders.forEach(function (tf) {
+    acctData.trackedFolders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (tf) {
       var row = document.createElement("div");
       row.className = "list-row";
       var labelWrap = document.createElement("div");
@@ -1548,17 +1340,15 @@
       sub.textContent = tf.path;
       labelWrap.appendChild(sub);
       row.appendChild(labelWrap);
-      var removeBtn = document.createElement("button");
-      removeBtn.className = "list-row-remove";
-      removeBtn.textContent = "Remove";
-      removeBtn.addEventListener("click", function () { removeTrackedFolder(tf.id); });
-      row.appendChild(removeBtn);
       el.trackedFoldersList.appendChild(row);
     });
   }
 
+  // Read-only — a tag only exists as long as its real top-level folder
+  // does; delete/rename the folder in OneDrive and Sync reconciles the tag.
   function renderTagsList() {
     var acctData = activeAccountData();
+    if (!el.tagsList) return;
     el.tagsList.innerHTML = "";
     if (!acctData || acctData.trackedFolders.length === 0) {
       var empty = document.createElement("div");
@@ -1567,7 +1357,7 @@
       el.tagsList.appendChild(empty);
       return;
     }
-    acctData.trackedFolders.forEach(function (tf) {
+    acctData.trackedFolders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (tf) {
       var count = acctData.notes.filter(function (n) { return n.tag === tf.name; }).length;
       var row = document.createElement("div");
       row.className = "list-row";
@@ -1575,11 +1365,6 @@
       label.className = "list-row-label";
       label.textContent = tf.name + " (" + count + ")";
       row.appendChild(label);
-      var removeBtn = document.createElement("button");
-      removeBtn.className = "list-row-remove";
-      removeBtn.textContent = "Delete";
-      removeBtn.addEventListener("click", function () { deleteTag(tf.name); });
-      row.appendChild(removeBtn);
       el.tagsList.appendChild(row);
     });
   }
@@ -1685,21 +1470,7 @@
       openNoteTarget(visibleNotes[selectedIndex]);
     });
 
-    el.captureBtn.addEventListener("click", startCapture);
-    el.captureTagClose.addEventListener("click", function () { closeSheet("captureTagSheet"); });
-
-    el.browseClose.addEventListener("click", function () { closeSheet("browseSheet"); browseState = null; });
-    el.browseCancelBtn.addEventListener("click", function () { closeSheet("browseSheet"); browseState = null; });
-    el.browseSelectBtn.addEventListener("click", function () {
-      var items = Object.keys(browseState.selected).map(function (k) { return browseState.selected[k]; });
-      if (items.length === 0) { alert("Select at least one item first."); return; }
-      var cb = browseState.onConfirm;
-      closeSheet("browseSheet");
-      browseState = null;
-      cb(items);
-    });
-
-    el.syncBtn.addEventListener("click", runSync);
+    el.syncBtn.addEventListener("click", function () { runSync(); });
 
     el.manageBtn.addEventListener("click", function () { openSheet("settingsHomeSheet"); });
     el.settingsHomeClose.addEventListener("click", function () { closeSheet("settingsHomeSheet"); });
@@ -1714,10 +1485,7 @@
     });
 
     el.trackedFoldersBack.addEventListener("click", function () { closeSheet("trackedFoldersSheet"); openSheet("settingsHomeSheet"); });
-    el.addFolderBtn.addEventListener("click", addTrackedFolder);
-
     el.tagsBack.addEventListener("click", function () { closeSheet("tagsSheet"); openSheet("settingsHomeSheet"); });
-    el.reassignClose.addEventListener("click", function () { closeSheet("reassignSheet"); });
 
     el.accountsBack.addEventListener("click", function () { closeSheet("accountsSheet"); openSheet("settingsHomeSheet"); });
     el.accountsAddBtn.addEventListener("click", addAccountFlow);
@@ -1732,12 +1500,20 @@
       });
     });
 
-    el.confirmClose.addEventListener("click", function () { closeSheet("confirmSheet"); pendingConfirm = null; });
-    el.confirmNo.addEventListener("click", function () { closeSheet("confirmSheet"); pendingConfirm = null; });
+    function cancelConfirm() {
+      var cancelAction = pendingConfirmCancel;
+      closeSheet("confirmSheet");
+      pendingConfirm = null;
+      pendingConfirmCancel = null;
+      if (cancelAction) cancelAction();
+    }
+    el.confirmClose.addEventListener("click", cancelConfirm);
+    el.confirmNo.addEventListener("click", cancelConfirm);
     el.confirmYes.addEventListener("click", function () {
       var action = pendingConfirm;
       closeSheet("confirmSheet");
       pendingConfirm = null;
+      pendingConfirmCancel = null;
       if (action) action();
     });
 
@@ -1755,10 +1531,19 @@
     wireEvents();
     initMsal();
     if (localConfig.gh) {
-      ghPull(function () { render(); });
+      ghPull(function () { render(); maybeAutoSync(); });
     } else {
       render();
+      maybeAutoSync();
     }
+  }
+
+  // Auto-sync on open, silently if nothing changed — only attempted once an
+  // Azure app + account are actually configured, and never falls back to a
+  // login popup (see getTokenForActiveAccount's silentOnly option).
+  function maybeAutoSync() {
+    if (!localConfig.azureClientId || !activeAccountConfig()) return;
+    runSync({ auto: true });
   }
 
   document.addEventListener("DOMContentLoaded", boot);
