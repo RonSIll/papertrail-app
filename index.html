@@ -132,7 +132,9 @@
   .tag-list-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
   .tag-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
   .type-list-header { flex: 0 0 54px; }
-  .type-list { flex: 0 0 auto; padding: 4px 0; }
+  /* Same lighter gray as .tag-list-scroll — fixed, not scrolling, but
+     styled as the matching content zone for its own title/divider pair. */
+  .type-list { flex: 0 0 auto; padding: 4px 0; background: #444447; }
   /* Same text style as .tag-count/.type-count — a subtle total, not a
      section title. Reflects the currently showing (filtered) note count,
      same as the tag/type counts above it. */
@@ -252,6 +254,7 @@
     <div class="type-list-header sidebar-section-title">Note Types</div>
     <div class="sidebar-divider"></div>
     <div class="type-list" id="typeList"></div>
+    <div class="sidebar-divider"></div>
     <div class="type-list-footer" id="sidebarTotal"></div>
   </nav>
   <div class="main-column">
