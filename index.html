@@ -51,10 +51,14 @@
   .main-column { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
   /* Top bar: account switcher + search */
+  /* Fixed dark gray matching .tag-sidebar exactly, independent of the
+     light/dark theme vars used elsewhere — same treatment as the sidebar's
+     own hardcoded background. */
   .topbar {
     flex: 0 0 auto;
     padding: calc(10px + env(safe-area-inset-top)) 16px 8px;
-    border-bottom: 1px solid var(--border);
+    background: #3a3a3d;
+    border-bottom: 1px solid rgba(255,255,255,0.14);
   }
   .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .account-select {
@@ -90,7 +94,7 @@
     color: var(--text); padding: 9px 14px; font-size: 14px; outline: none;
   }
   .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-  .last-synced { font-size: 12px; color: var(--text3); white-space: nowrap; }
+  .last-synced { font-size: 12px; color: #8a8a90; white-space: nowrap; }
   .last-synced:empty { display: none; }
   .icon-btn-top {
     flex: 0 0 auto; height: 36px; padding: 0 10px; border: 1px solid var(--border);
