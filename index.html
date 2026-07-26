@@ -455,6 +455,11 @@
   function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
   function b64decode(str) { return decodeURIComponent(escape(atob(str))); }
 
+  // The Contents API only inlines `content` for files under ~1MB — past
+  // that it omits the field entirely with no error, so a growing data.json
+  // silently stopped pulling fresh data and fell back to a stale local
+  // cache. The Git Blobs API has no such limit (up to 100MB), so fetch the
+  // blob directly whenever Contents API doesn't hand back content inline.
   function ghPull(cb) {
     if (!localConfig.gh) { if (cb) cb(); return; }
     fetch(ghApiUrl(), { headers: { Authorization: "token " + localConfig.gh.pat } })
@@ -464,10 +469,21 @@
         return res.json();
       })
       .then(function (json) {
-        if (json) {
-          localConfig.gh.sha = json.sha;
-          saveLocalConfig();
-          data = JSON.parse(b64decode(json.content));
+        if (!json) { if (cb) cb(); return; }
+        localConfig.gh.sha = json.sha;
+        saveLocalConfig();
+        if (json.content) return json.content;
+        var blobUrl = "https://api.github.com/repos/" + localConfig.gh.owner + "/" + localConfig.gh.repo + "/git/blobs/" + json.sha;
+        return fetch(blobUrl, { headers: { Authorization: "token " + localConfig.gh.pat } })
+          .then(function (res) {
+            if (!res.ok) throw new Error("blob pull failed");
+            return res.json();
+          })
+          .then(function (blob) { return blob.content; });
+      })
+      .then(function (content) {
+        if (content) {
+          data = JSON.parse(b64decode(content.replace(/\n/g, "")));
           saveLocalData();
         }
         if (cb) cb();
