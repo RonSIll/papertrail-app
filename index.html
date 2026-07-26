@@ -123,6 +123,10 @@
   .preview-filename { font-size: 15px; font-weight: 600; color: var(--text); word-break: break-word; margin-bottom: 8px; }
   .preview-thumb-slot { margin-top: 14px; color: var(--text3); font-size: 13px; }
   .preview-thumb { max-width: 100%; display: block; border: 1px solid var(--border); }
+  .preview-text {
+    white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px;
+    color: var(--text); max-height: 60vh; overflow-y: auto; margin: 0;
+  }
   .preview-site-slot { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
   .preview-favicon { width: 32px; height: 32px; flex: 0 0 auto; }
   .preview-site-host { font-size: 13px; color: var(--text2); margin-bottom: 4px; word-break: break-all; }
@@ -1258,6 +1262,19 @@
       return;
     }
 
+    if (/\.md$/i.test(note.filename)) {
+      getTokenForActiveAccount().then(function (token) {
+        return fetchFileText(acctCfg.driveBaseUrl, note.driveItemId, token);
+      }).then(function (text) {
+        if (mySeq !== previewRequestSeq) return;
+        renderTextPreview(thumbSlot, text);
+      }).catch(function () {
+        if (mySeq !== previewRequestSeq) return;
+        thumbSlot.textContent = "No preview available for this file type.";
+      });
+      return;
+    }
+
     getTokenForActiveAccount().then(function (token) {
       var url = acctCfg.driveBaseUrl + "/items/" + note.driveItemId + "/thumbnails";
       return graphFetch(url, token);
@@ -1278,12 +1295,10 @@
     });
   }
 
-  // Internet Shortcut (.url) files are plain text ("[InternetShortcut]\nURL=...").
-  // Graph won't thumbnail them, so instead we read the tiny file itself via its
-  // pre-authenticated downloadUrl (no Authorization header — Graph's own /content
-  // endpoint doesn't survive its redirect to blob storage cleanly with one) and
-  // pull out the target address.
-  function fetchUrlShortcutTarget(driveBaseUrl, itemId, token) {
+  // Reads a small text file's actual content via its pre-authenticated
+  // downloadUrl (no Authorization header — Graph's own /content endpoint
+  // doesn't survive its redirect to blob storage cleanly with one).
+  function fetchFileText(driveBaseUrl, itemId, token) {
     var metaUrl = driveBaseUrl + "/items/" + itemId + "?$select=%40microsoft.graph.downloadUrl";
     return graphFetch(metaUrl, token).then(function (meta) {
       var downloadUrl = meta["@microsoft.graph.downloadUrl"];
@@ -1292,7 +1307,14 @@
         if (!res.ok) throw new Error("content fetch failed");
         return res.text();
       });
-    }).then(function (text) {
+    });
+  }
+
+  // Internet Shortcut (.url) files are plain text ("[InternetShortcut]\nURL=...");
+  // Graph won't thumbnail them, so read the file's own text and pull out
+  // the target address.
+  function fetchUrlShortcutTarget(driveBaseUrl, itemId, token) {
+    return fetchFileText(driveBaseUrl, itemId, token).then(function (text) {
       var match = text.match(/^URL=(.+)$/im);
       if (!match) throw new Error("no URL= line found");
       return match[1].trim();
@@ -1379,6 +1401,18 @@
     info.appendChild(visit);
 
     slot.appendChild(info);
+  }
+
+  // OneDrive doesn't generate thumbnails for plain-text/Markdown files, so
+  // show the note's actual text directly instead of "no preview available"
+  // — textContent, never innerHTML, since note bodies are untrusted text
+  // that could contain anything (including literal HTML/script-looking text).
+  function renderTextPreview(slot, text) {
+    slot.innerHTML = "";
+    var pre = document.createElement("pre");
+    pre.className = "preview-text";
+    pre.textContent = text;
+    slot.appendChild(pre);
   }
 
   // Read-only — every top-level OneDrive folder under the tag root is
