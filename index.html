@@ -102,10 +102,20 @@
 
   /* Content row: note list + preview panel (tag sidebar now lives outside this row, full height) */
   .content-row { flex: 1 1 auto; display: flex; overflow: hidden; }
+  /* Three fixed/scrolling zones, top to bottom: a fixed blank header, the
+     tag list scrolling independently in the middle, and the file-type list
+     fixed at the bottom below a divider — scrolling the tag list must never
+     move the header above it or the type list below it. */
   .tag-sidebar {
-    flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw); overflow-y: auto; -webkit-overflow-scrolling: touch;
-    background: #3a3a3d; padding: 54px 0 4px;
+    flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
+    background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
   }
+  .tag-sidebar-header { flex: 0 0 54px; }
+  .tag-list-scroll {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 4px;
+  }
+  .type-sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
+  .type-list { flex: 0 0 auto; padding: 4px 0; }
   .tag-sidebar-item {
     padding: 4.5px 3.6px 4.5px 18px; font-size: 16px; line-height: 1.3; color: #c8c8cc;
     cursor: pointer; word-break: break-word;
@@ -213,7 +223,12 @@
 </head>
 <body>
 <div id="app">
-  <nav class="tag-sidebar" id="tagSidebar"></nav>
+  <nav class="tag-sidebar" id="tagSidebar">
+    <div class="tag-sidebar-header"></div>
+    <div class="tag-list-scroll" id="tagList"></div>
+    <div class="type-sidebar-divider"></div>
+    <div class="type-list" id="typeList"></div>
+  </nav>
   <div class="main-column">
     <div class="topbar">
       <div class="account-row" id="accountRow">
@@ -366,7 +381,32 @@
 
   var msalApp = null;
   var msalInitPromise = null;
-  var searchState = { text: "", tag: null };
+  var searchState = { text: "", tag: null, fileType: null };
+
+  // File-type filter: five categories, no catch-all — a file whose
+  // extension matches none of these just isn't reachable through the type
+  // filter, though it stays visible under an unfiltered view. Matched
+  // case-insensitively since real OneDrive files carry mixed-case
+  // extensions (.JPG, .PDF). A .lnk is included under Links unconditionally:
+  // performSync's Phase B already discards any .lnk that doesn't resolve to
+  // a real URL before it ever becomes a note, so any .lnk note that exists
+  // in data is already known to be a link.
+  var FILE_TYPE_CATEGORIES = ["Documents", "Images", "Notes", "Links", "Media"];
+  var FILE_TYPE_EXTENSIONS = {
+    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"],
+    Images: ["jpg", "jpeg", "png", "heic", "gif"],
+    Notes: ["md"],
+    Links: ["url", "lnk"],
+    Media: ["mp4", "mov", "mp3", "wav"]
+  };
+  var EXT_TO_FILE_TYPE = {};
+  Object.keys(FILE_TYPE_EXTENSIONS).forEach(function (type) {
+    FILE_TYPE_EXTENSIONS[type].forEach(function (ext) { EXT_TO_FILE_TYPE[ext] = type; });
+  });
+  function noteFileType(note) {
+    var m = /\.([a-z0-9]+)$/i.exec(note.filename);
+    return m ? (EXT_TO_FILE_TYPE[m[1].toLowerCase()] || null) : null;
+  }
   var selectedCardEl = null; // currently selected note-card in the center panel, drives the right-panel preview
   var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
   var visibleNotes = []; // the currently filtered/sorted note list, in the same order as the rendered cards
@@ -380,7 +420,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountRow","accountSelect","addAccountBtn","searchInput","content","contentRight","tagSidebar","globalStatusMsg",
+      "accountRow","accountSelect","addAccountBtn","searchInput","content","contentRight","tagList","typeList","globalStatusMsg",
       "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
       "trackedFoldersSheet","trackedFoldersBack","trackedFoldersList",
@@ -1041,6 +1081,7 @@
   function render() {
     renderAccountSelect();
     renderTagSidebar();
+    renderTypeSidebar();
     renderNoteList();
   }
 
@@ -1062,17 +1103,19 @@
     });
   }
 
-  // Left-quarter tag column — alphabetical, click to filter to one tag,
-  // click the active tag again (or "All") to clear back to the full list.
-  // While a filename search is active, only tags belonging to matching
-  // notes are shown; the active tag filter auto-clears if it drops out.
+  // Tag column — alphabetical, click a tag to filter to it, click the same
+  // tag again to clear back to the full list (no "All" row). While a
+  // filename search is active, only tags belonging to matching notes are
+  // shown; the active tag filter auto-clears if it drops out.
   function renderTagSidebar() {
     var acctData = activeAccountData();
-    el.tagSidebar.innerHTML = "";
+    el.tagList.innerHTML = "";
+
+    if (!acctData || acctData.trackedFolders.length === 0) return;
 
     var text = searchState.text.trim().toLowerCase();
     var visibleTags = null;
-    if (text && acctData) {
+    if (text) {
       visibleTags = {};
       acctData.notes.forEach(function (n) {
         if (n.filename.toLowerCase().indexOf(text) !== -1) visibleTags[n.tag] = true;
@@ -1080,24 +1123,14 @@
       if (searchState.tag && !visibleTags[searchState.tag]) searchState.tag = null;
     }
 
-    var allRow = document.createElement("div");
-    allRow.className = "tag-sidebar-item" + (!searchState.tag ? " active" : "");
-    allRow.textContent = "All";
-    allRow.addEventListener("click", function () {
-      searchState.tag = null;
-      renderTagSidebar();
-      renderNoteList();
-    });
-    el.tagSidebar.appendChild(allRow);
-
-    if (!acctData || acctData.trackedFolders.length === 0) return;
-
-    // Counts reflect the current filename search, not the tag's total note
-    // count, so a tag showing "40" while filtered means 40 of its notes
-    // match what's typed, not that it has 40 notes overall.
+    // Counts reflect the current filename search and file-type filter, not
+    // the tag's total note count, so a tag showing "40" while filtered
+    // means 40 of its notes match what's typed/selected, not that it has 40
+    // notes overall.
     var counts = {};
     acctData.notes.forEach(function (n) {
       if (text && n.filename.toLowerCase().indexOf(text) === -1) return;
+      if (searchState.fileType && noteFileType(n) !== searchState.fileType) return;
       counts[n.tag] = (counts[n.tag] || 0) + 1;
     });
 
@@ -1116,10 +1149,50 @@
         row.addEventListener("click", function () {
           searchState.tag = (searchState.tag === t) ? null : t;
           renderTagSidebar();
+          renderTypeSidebar();
           renderNoteList();
         });
-        el.tagSidebar.appendChild(row);
+        el.tagList.appendChild(row);
       });
+  }
+
+  // File-type column — fixed at the bottom of the sidebar, below the
+  // scrolling tag list. Always renders all five categories, even at a
+  // count of 0, matching the tag list's own zero-count precedent (e.g. a
+  // tag can already show "0" today). Same click-to-filter,
+  // click-again-to-clear interaction as the tag list.
+  function renderTypeSidebar() {
+    var acctData = activeAccountData();
+    el.typeList.innerHTML = "";
+
+    var text = searchState.text.trim().toLowerCase();
+    var counts = {};
+    if (acctData) {
+      acctData.notes.forEach(function (n) {
+        if (text && n.filename.toLowerCase().indexOf(text) === -1) return;
+        if (searchState.tag && n.tag !== searchState.tag) return;
+        var type = noteFileType(n);
+        if (!type) return;
+        counts[type] = (counts[type] || 0) + 1;
+      });
+    }
+
+    FILE_TYPE_CATEGORIES.forEach(function (type) {
+      var row = document.createElement("div");
+      row.className = "tag-sidebar-item" + (searchState.fileType === type ? " active" : "");
+      row.appendChild(document.createTextNode(type));
+      var countSpan = document.createElement("span");
+      countSpan.className = "tag-count";
+      countSpan.textContent = counts[type] || 0;
+      row.appendChild(countSpan);
+      row.addEventListener("click", function () {
+        searchState.fileType = (searchState.fileType === type) ? null : type;
+        renderTagSidebar();
+        renderTypeSidebar();
+        renderNoteList();
+      });
+      el.typeList.appendChild(row);
+    });
   }
 
   function renderNoteList() {
@@ -1140,7 +1213,8 @@
     var notes = acctData.notes.filter(function (n) {
       var matchesText = !text || n.filename.toLowerCase().indexOf(text) !== -1;
       var matchesTag = !searchState.tag || n.tag === searchState.tag;
-      return matchesText && matchesTag;
+      var matchesType = !searchState.fileType || noteFileType(n) === searchState.fileType;
+      return matchesText && matchesTag && matchesType;
     }).sort(function (a, b) { return new Date(b.capturedAt) - new Date(a.capturedAt); });
 
     if (notes.length === 0) {
@@ -1588,6 +1662,7 @@
     el.searchInput.addEventListener("input", function () {
       searchState.text = el.searchInput.value;
       renderTagSidebar();
+      renderTypeSidebar();
       renderNoteList();
     });
     el.searchInput.addEventListener("keydown", function (e) {
@@ -1595,6 +1670,7 @@
         el.searchInput.value = "";
         searchState.text = "";
         renderTagSidebar();
+        renderTypeSidebar();
         renderNoteList();
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
