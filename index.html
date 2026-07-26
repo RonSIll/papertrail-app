@@ -910,35 +910,50 @@
             });
           });
 
-          var notesByItemId = {};
-          acctData.notes.forEach(function (n) { notesByItemId[n.driveItemId] = n; });
+          // A .lnk almost always points at a local file/folder (a shortcut
+          // meaningless once separated from the PC that made it) rather
+          // than a URL — only the rare exception that resolves to a real
+          // web address becomes a note at all, checked once here by
+          // reading each .lnk's content. Everything else about it (tagging,
+          // move detection) proceeds exactly like any other file below.
+          var lnkIds = Object.keys(createdItems).filter(function (id) {
+            return /\.lnk$/i.test(createdItems[id].item.name);
+          });
+          return Promise.all(lnkIds.map(function (id) {
+            return resolveLnkUrl(driveBaseUrl, id, token).then(function (url) {
+              if (!url) delete createdItems[id];
+            }).catch(function () { delete createdItems[id]; });
+          })).then(function () {
+            var notesByItemId = {};
+            acctData.notes.forEach(function (n) { notesByItemId[n.driveItemId] = n; });
 
-          Object.keys(createdItems).forEach(function (itemId) {
-            var c = createdItems[itemId];
-            var existing = notesByItemId[itemId];
-            if (existing) {
-              if (existing.tag !== c.tagName) {
-                existing.tag = c.tagName;
-                existing.folderPath = folderBreadcrumb(c.item.parentReference ? c.item.parentReference.path : "", acctCfg.tagRootPath);
-                summary.movedFileCount++;
+            Object.keys(createdItems).forEach(function (itemId) {
+              var c = createdItems[itemId];
+              var existing = notesByItemId[itemId];
+              if (existing) {
+                if (existing.tag !== c.tagName) {
+                  existing.tag = c.tagName;
+                  existing.folderPath = folderBreadcrumb(c.item.parentReference ? c.item.parentReference.path : "", acctCfg.tagRootPath);
+                  summary.movedFileCount++;
+                }
+                delete deletedIds[itemId]; // matched by a create elsewhere — not really gone
+              } else {
+                var note = makeNote(c.item, c.tagName, acctCfg);
+                acctData.notes.push(note);
+                notesByItemId[itemId] = note;
+                summary.newFileCount++;
               }
-              delete deletedIds[itemId]; // matched by a create elsewhere — not really gone
-            } else {
-              var note = makeNote(c.item, c.tagName, acctCfg);
-              acctData.notes.push(note);
-              notesByItemId[itemId] = note;
-              summary.newFileCount++;
-            }
-          });
+            });
 
-          Object.keys(deletedIds).forEach(function (itemId) {
-            var idx = acctData.notes.findIndex(function (n) { return n.driveItemId === itemId; });
-            if (idx !== -1) { acctData.notes.splice(idx, 1); summary.deletedFileCount++; }
-          });
+            Object.keys(deletedIds).forEach(function (itemId) {
+              var idx = acctData.notes.findIndex(function (n) { return n.driveItemId === itemId; });
+              if (idx !== -1) { acctData.notes.splice(idx, 1); summary.deletedFileCount++; }
+            });
 
-          newFolderRecords.forEach(function (rec) {
-            var count = acctData.notes.filter(function (n) { return n.tag === rec.tf.name; }).length;
-            summary.newFolders.push({ name: rec.tf.name, count: count });
+            newFolderRecords.forEach(function (rec) {
+              var count = acctData.notes.filter(function (n) { return n.tag === rec.tf.name; }).length;
+              summary.newFolders.push({ name: rec.tf.name, count: count });
+            });
           });
         });
       });
@@ -1262,6 +1277,25 @@
       return;
     }
 
+    // A .lnk that survived Sync (see performSync's Phase B) is one that
+    // resolved to a real URL rather than a local path — treat it exactly
+    // like a .url shortcut here too, same site-preview, same Enter-key
+    // behavior in openNoteTarget below.
+    if (/\.lnk$/i.test(note.filename)) {
+      getTokenForActiveAccount().then(function (token) {
+        return resolveLnkUrl(acctCfg.driveBaseUrl, note.driveItemId, token);
+      }).then(function (targetUrl) {
+        note._resolvedTargetUrl = targetUrl;
+        if (mySeq !== previewRequestSeq) return;
+        if (targetUrl) renderSitePreview(thumbSlot, targetUrl);
+        else thumbSlot.textContent = "No preview available for this file type.";
+      }).catch(function () {
+        if (mySeq !== previewRequestSeq) return;
+        thumbSlot.textContent = "No preview available for this file type.";
+      });
+      return;
+    }
+
     if (/\.md$/i.test(note.filename)) {
       getTokenForActiveAccount().then(function (token) {
         return fetchFileText(acctCfg.driveBaseUrl, note.driveItemId, token);
@@ -1321,6 +1355,43 @@
     });
   }
 
+  // Same downloadUrl approach as fetchFileText, but as raw bytes -- needed
+  // for .lnk files, which are binary, not text.
+  function fetchFileArrayBuffer(driveBaseUrl, itemId, token) {
+    var metaUrl = driveBaseUrl + "/items/" + itemId + "?$select=%40microsoft.graph.downloadUrl";
+    return graphFetch(metaUrl, token).then(function (meta) {
+      var downloadUrl = meta["@microsoft.graph.downloadUrl"];
+      if (!downloadUrl) throw new Error("no download URL");
+      return fetch(downloadUrl).then(function (res) {
+        if (!res.ok) throw new Error("content fetch failed");
+        return res.arrayBuffer();
+      });
+    });
+  }
+
+  // Windows .lnk (Shell Link) files are a proprietary binary format --
+  // rather than implementing the full [MS-SHLLINK] spec just to find a
+  // target, decode the bytes as UTF-16LE (how Windows stores a shortcut's
+  // target string, whether it's a URL or a local path) and scan for an
+  // http(s) address. A local file/folder path never matches this pattern,
+  // so this reliably tells the two cases apart for our purposes: only a
+  // .lnk that genuinely points at a URL should ever become a note (see
+  // performSync's Phase B) or get .url-style preview/open treatment.
+  function extractUrlFromLnkBytes(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var chars = [];
+    for (var i = 0; i + 1 < bytes.length; i += 2) {
+      var code = bytes[i] | (bytes[i + 1] << 8);
+      chars.push(code >= 32 && code < 0x2000 ? String.fromCharCode(code) : " ");
+    }
+    var match = chars.join("").match(/https?:\/\/[^\s"'<>]+/i);
+    return match ? match[0] : null;
+  }
+
+  function resolveLnkUrl(driveBaseUrl, itemId, token) {
+    return fetchFileArrayBuffer(driveBaseUrl, itemId, token).then(extractUrlFromLnkBytes);
+  }
+
   // Opens a note's "primary" target: a .url shortcut's actual website if it
   // resolves, otherwise (or on any failure) the OneDrive document itself.
   // Shared by the Enter-key shortcut below.
@@ -1340,7 +1411,8 @@
   // blank-then-redirect fallback below is kept only for the rare case
   // where the preview genuinely hasn't resolved yet.
   function openNoteTarget(note) {
-    if (!/\.url$/i.test(note.filename)) {
+    var isUrlLike = /\.url$/i.test(note.filename) || /\.lnk$/i.test(note.filename);
+    if (!isUrlLike) {
       // Mirrors the Open pill's PC-local-file logic in renderPreview —
       // this was left on the old always-webUrl behavior when that was
       // added, so Enter silently diverged from clicking Open until now.
@@ -1360,11 +1432,14 @@
     var win = window.open("", "_blank", "noopener");
     acctCfg = activeAccountConfig();
     if (!acctCfg) { if (win) win.location = note.webUrl; return; }
+    var isLnk = /\.lnk$/i.test(note.filename);
     getTokenForActiveAccount().then(function (token) {
-      return fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
+      return isLnk
+        ? resolveLnkUrl(acctCfg.driveBaseUrl, note.driveItemId, token)
+        : fetchUrlShortcutTarget(acctCfg.driveBaseUrl, note.driveItemId, token);
     }).then(function (targetUrl) {
       note._resolvedTargetUrl = targetUrl;
-      if (win) win.location = targetUrl;
+      if (win) win.location = targetUrl || note.webUrl;
     }).catch(function () {
       if (win) win.location = note.webUrl;
     });
