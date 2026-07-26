@@ -117,6 +117,11 @@
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
     background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
   }
+  .sidebar-section-title {
+    display: flex; align-items: flex-end; padding: 0 18px 6px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #8a8a90;
+  }
   .tag-sidebar-header { flex: 0 0 54px; }
   .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
@@ -241,11 +246,11 @@
 <body>
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
-    <div class="tag-sidebar-header"></div>
+    <div class="tag-sidebar-header sidebar-section-title">Tags</div>
     <div class="sidebar-divider"></div>
     <div class="tag-list-scroll" id="tagList"></div>
     <div class="sidebar-divider"></div>
-    <div class="type-list-header"></div>
+    <div class="type-list-header sidebar-section-title">Note Types</div>
     <div class="type-list" id="typeList"></div>
     <div class="type-list-footer"></div>
   </nav>
