@@ -813,7 +813,17 @@
 
         deltaTargets.forEach(function (tf) {
           gatherWork.push(
-            deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).then(function (result) {
+            deltaQuery(driveBaseUrl, tf.id, token, tf.deltaLink).catch(function (err) {
+              // A stored delta token can go stale and come back 410 Gone —
+              // Graph's documented signal to drop it and restart the delta
+              // walk from scratch for that folder, rather than leaving it
+              // stuck failing every subsequent Sync. Existing notes are
+              // reconciled by driveItemId in Phase B below, so a fresh
+              // unfiltered delta doesn't create duplicates.
+              if (!/\b410\b/.test(err.message)) throw err;
+              tf.deltaLink = null;
+              return deltaQuery(driveBaseUrl, tf.id, token, null);
+            }).then(function (result) {
               tf.deltaLink = result.deltaLink;
               perFolderDeltaItems.push({ tf: tf, items: result.items });
             }).catch(function () { summary.failedFolders.push(tf.name); })
