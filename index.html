@@ -1092,8 +1092,14 @@
 
     if (!acctData || acctData.trackedFolders.length === 0) return;
 
+    // Counts reflect the current filename search, not the tag's total note
+    // count, so a tag showing "40" while filtered means 40 of its notes
+    // match what's typed, not that it has 40 notes overall.
     var counts = {};
-    acctData.notes.forEach(function (n) { counts[n.tag] = (counts[n.tag] || 0) + 1; });
+    acctData.notes.forEach(function (n) {
+      if (text && n.filename.toLowerCase().indexOf(text) === -1) return;
+      counts[n.tag] = (counts[n.tag] || 0) + 1;
+    });
 
     acctData.trackedFolders
       .map(function (tf) { return tf.name; })
