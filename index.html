@@ -102,20 +102,30 @@
 
   /* Content row: note list + preview panel (tag sidebar now lives outside this row, full height) */
   .content-row { flex: 1 1 auto; display: flex; overflow: hidden; }
-  /* Three fixed/scrolling zones, top to bottom: a fixed blank header, the
-     tag list scrolling independently in the middle, and the file-type list
-     fixed at the bottom below a divider — scrolling the tag list must never
-     move the header above it or the type list below it. */
+  /* Fixed/scrolling zones, top to bottom: a fixed blank header, a divider,
+     the tag list scrolling independently, another divider, a blank spacer,
+     the fixed file-type list, and a final blank spacer — scrolling the tag
+     list must never move anything above or below it. */
   .tag-sidebar {
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
     background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
   }
   .tag-sidebar-header { flex: 0 0 54px; }
+  .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
     flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 4px;
+    /* Subtle scrollbar — close to the sidebar's own gray rather than the
+       browser default, which reads as a bright, contrasty stripe against
+       #3a3a3d. */
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent;
   }
-  .type-sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
+  .tag-list-scroll::-webkit-scrollbar { width: 8px; }
+  .tag-list-scroll::-webkit-scrollbar-track { background: transparent; }
+  .tag-list-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+  .tag-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+  .type-list-header { flex: 0 0 32px; }
   .type-list { flex: 0 0 auto; padding: 4px 0; }
+  .type-list-footer { flex: 0 0 64px; }
   .tag-sidebar-item {
     padding: 4.5px 3.6px 4.5px 18px; font-size: 16px; line-height: 1.3; color: #c8c8cc;
     cursor: pointer; word-break: break-word;
@@ -225,9 +235,12 @@
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
     <div class="tag-sidebar-header"></div>
+    <div class="sidebar-divider"></div>
     <div class="tag-list-scroll" id="tagList"></div>
-    <div class="type-sidebar-divider"></div>
+    <div class="sidebar-divider"></div>
+    <div class="type-list-header"></div>
     <div class="type-list" id="typeList"></div>
+    <div class="type-list-footer"></div>
   </nav>
   <div class="main-column">
     <div class="topbar">
