@@ -96,9 +96,12 @@
   .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
   .last-synced { font-size: 12px; color: #8a8a90; white-space: nowrap; }
   .last-synced:empty { display: none; }
+  /* Same dark gray as the topbar itself, distinguished only by a subtle
+     border — text/icon color matches .tag-sidebar-item's tag-name gray
+     (the icons use stroke="currentColor", so they follow automatically). */
   .icon-btn-top {
-    flex: 0 0 auto; height: 36px; padding: 0 10px; border: 1px solid var(--border);
-    background: var(--bg2); color: var(--text); display: flex; align-items: center;
+    flex: 0 0 auto; height: 36px; padding: 0 10px; border: 1px solid rgba(255,255,255,0.18);
+    background: #3a3a3d; color: #c8c8cc; display: flex; align-items: center;
     gap: 5px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
   }
   .icon-btn-top svg { pointer-events: none; }
