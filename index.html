@@ -411,6 +411,19 @@
   var msalInitPromise = null;
   var searchState = { text: "", tag: null, fileType: null };
 
+  // Splits the search box text into words on whitespace, lowercased, empty
+  // tokens dropped. A note matches only if every word is found somewhere in
+  // its filename (AND, any order) — so "toy receipt" matches "receipt
+  // toyota.pdf" the same as "receipt toy" would.
+  function searchWords() {
+    return searchState.text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  }
+  function matchesSearchWords(filename, words) {
+    if (!words.length) return true;
+    var lower = filename.toLowerCase();
+    return words.every(function (w) { return lower.indexOf(w) !== -1; });
+  }
+
   // File-type filter: five categories, no catch-all — a file whose
   // extension matches none of these just isn't reachable through the type
   // filter, though it stays visible under an unfiltered view. Matched
@@ -1141,12 +1154,12 @@
 
     if (!acctData || acctData.trackedFolders.length === 0) return;
 
-    var text = searchState.text.trim().toLowerCase();
+    var words = searchWords();
     var visibleTags = null;
-    if (text) {
+    if (words.length) {
       visibleTags = {};
       acctData.notes.forEach(function (n) {
-        if (n.filename.toLowerCase().indexOf(text) !== -1) visibleTags[n.tag] = true;
+        if (matchesSearchWords(n.filename, words)) visibleTags[n.tag] = true;
       });
       if (searchState.tag && !visibleTags[searchState.tag]) searchState.tag = null;
     }
@@ -1157,7 +1170,7 @@
     // notes overall.
     var counts = {};
     acctData.notes.forEach(function (n) {
-      if (text && n.filename.toLowerCase().indexOf(text) === -1) return;
+      if (!matchesSearchWords(n.filename, words)) return;
       if (searchState.fileType && noteFileType(n) !== searchState.fileType) return;
       counts[n.tag] = (counts[n.tag] || 0) + 1;
     });
@@ -1193,11 +1206,11 @@
     var acctData = activeAccountData();
     el.typeList.innerHTML = "";
 
-    var text = searchState.text.trim().toLowerCase();
+    var words = searchWords();
     var counts = {};
     if (acctData) {
       acctData.notes.forEach(function (n) {
-        if (text && n.filename.toLowerCase().indexOf(text) === -1) return;
+        if (!matchesSearchWords(n.filename, words)) return;
         if (searchState.tag && n.tag !== searchState.tag) return;
         var type = noteFileType(n);
         if (!type) return;
@@ -1238,9 +1251,9 @@
       renderSidebarTotal(null);
       return;
     }
-    var text = searchState.text.trim().toLowerCase();
+    var words = searchWords();
     var notes = acctData.notes.filter(function (n) {
-      var matchesText = !text || n.filename.toLowerCase().indexOf(text) !== -1;
+      var matchesText = matchesSearchWords(n.filename, words);
       var matchesTag = !searchState.tag || n.tag === searchState.tag;
       var matchesType = !searchState.fileType || noteFileType(n) === searchState.fileType;
       return matchesText && matchesTag && matchesType;
