@@ -56,9 +56,23 @@
      own hardcoded background. */
   .topbar {
     flex: 0 0 auto;
-    padding: calc(10px + env(safe-area-inset-top)) 16px 8px;
+    padding: calc(10px + env(safe-area-inset-top)) 0 8px;
     background: #3a3a3d;
     border-bottom: 1px solid rgba(255,255,255,0.14);
+  }
+  /* Structural match, not a tuned percentage: .topbar-left/.topbar-right
+     use the exact same flex: 1 1 0 split as .content/.content-right below
+     (down to the 1px border .content-right carries, mirrored here as a
+     transparent border so both rows consume identical width), so the
+     search input — full-width inside .topbar-left's own 16px side padding,
+     same padding .content itself uses — always renders at exactly the note
+     card width, at any window size, rather than one calc() tuned to a
+     single tested width. */
+  .topbar-columns { display: flex; align-items: flex-end; }
+  .topbar-left { flex: 1 1 0; min-width: 0; padding: 0 16px; }
+  .topbar-right {
+    flex: 1 1 0; min-width: 0; padding: 0 16px; border-left: 1px solid transparent;
+    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
   }
   .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .account-select {
@@ -70,30 +84,10 @@
     background: var(--bg2); color: var(--text); display: flex; align-items: center;
     justify-content: center; cursor: pointer; font-size: 16px;
   }
-  .search-row { display: flex; align-items: center; gap: 6px; }
-  .search-field-wrap {
-    /* Matches the rendered width of the center panel: half of content-row
-       (flex: 1 1 0 split with .content-right) — expressed here relative to
-       .search-row's own width, which already has the topbar's 16px+16px
-       padding stripped, same as .content-row has none of its own. Left-
-       aligned (not centered): a note card gets its whole 16px inset from
-       .content's own left padding, all on one side, so centering the input
-       here would split that 16px 8/8 and throw off the left edge match. */
-    flex: 0 1 50%; min-width: 0; display: flex; justify-content: flex-start;
-  }
-  .search-row input[type="text"] {
-    /* .search-field-wrap is already flex: 0 1 50% of .search-row, mirroring
-       content-row's 50/50 split; subtracting 16px here matches .content's
-       own 16px+16px padding the same way the note cards are inset, landing
-       on the same rendered width (verified via getBoundingClientRect). */
-    /* 80% of the previous calc(100% - 16px) width, i.e. 0.8*(100% - 16px)
-       = 80% - 12.8px. Left edge stays put since .search-field-wrap packs
-       with justify-content: flex-start — shrinking the width only pulls
-       in the right edge. */
-    flex: 0 0 auto; width: calc(80% - 12.8px); border: 1px solid var(--border); background: var(--bg2);
+  .topbar-left input[type="text"] {
+    width: 100%; border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 14px; font-size: 14px; outline: none;
   }
-  .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
   .last-synced { font-size: 12px; color: #8a8a90; white-space: nowrap; }
   .last-synced:empty { display: none; }
   /* Same dark gray as the topbar itself, no border — text/icon color
@@ -257,15 +251,15 @@
   </nav>
   <div class="main-column">
     <div class="topbar">
-      <div class="account-row" id="accountRow">
-        <select class="account-select" id="accountSelect"></select>
-        <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
-      </div>
-      <div class="search-row">
-        <div class="search-field-wrap">
+      <div class="topbar-columns">
+        <div class="topbar-left">
+          <div class="account-row" id="accountRow">
+            <select class="account-select" id="accountSelect"></select>
+            <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
+          </div>
           <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
         </div>
-        <div class="topbar-actions">
+        <div class="topbar-right">
           <span class="last-synced" id="lastSyncedLabel"></span>
           <button class="icon-btn-top" id="syncBtn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
