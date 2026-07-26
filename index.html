@@ -785,7 +785,16 @@
           tf.name = real.name;
           tf.path = real.parentReference.path + "/" + real.name;
           var relabeled = 0;
-          acctData.notes.forEach(function (n) { if (n.tag === oldName) { n.tag = real.name; relabeled++; } });
+          acctData.notes.forEach(function (n) {
+            if (n.tag !== oldName) return;
+            n.tag = real.name;
+            if (n.folderPath === oldName) {
+              n.folderPath = real.name;
+            } else if (n.folderPath && n.folderPath.indexOf(oldName + " / ") === 0) {
+              n.folderPath = real.name + n.folderPath.slice(oldName.length);
+            }
+            relabeled++;
+          });
           summary.renamedFolders.push({ oldName: oldName, newName: real.name, count: relabeled });
         }
       });
