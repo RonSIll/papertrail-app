@@ -89,7 +89,9 @@
     flex: 0 0 auto; width: calc(80% - 12.8px); border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 14px; font-size: 14px; outline: none;
   }
-  .topbar-actions { display: flex; gap: 6px; margin-left: auto; }
+  .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .last-synced { font-size: 12px; color: var(--text3); white-space: nowrap; }
+  .last-synced:empty { display: none; }
   .icon-btn-top {
     flex: 0 0 auto; height: 36px; padding: 0 10px; border: 1px solid var(--border);
     background: var(--bg2); color: var(--text); display: flex; align-items: center;
@@ -217,6 +219,7 @@
           <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
         </div>
         <div class="topbar-actions">
+          <span class="last-synced" id="lastSyncedLabel"></span>
           <button class="icon-btn-top" id="syncBtn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Sync
@@ -372,7 +375,7 @@
   function cacheEls() {
     [
       "accountRow","accountSelect","addAccountBtn","searchInput","content","contentRight","tagSidebar","globalStatusMsg",
-      "syncBtn","manageBtn","backdrop",
+      "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
       "trackedFoldersSheet","trackedFoldersBack","trackedFoldersList",
       "tagsSheet","tagsBack","tagsList",
@@ -521,6 +524,19 @@
     saveLocalData();
     clearTimeout(pushTimer);
     pushTimer = setTimeout(ghPushNow, 500);
+  }
+
+  // Surfaces when Sync last fully succeeded, so a silently-failing
+  // auto-sync (no cached session, a persistently rejected token, etc.)
+  // is visible without requiring a manual click to notice — auto-sync
+  // deliberately suppresses its own errors, so this is the only signal.
+  function renderLastSynced() {
+    if (!el.lastSyncedLabel) return;
+    if (!localConfig.lastSyncedAt) { el.lastSyncedLabel.textContent = ""; return; }
+    var d = new Date(localConfig.lastSyncedAt);
+    var sameDay = d.toDateString() === new Date().toDateString();
+    var time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    el.lastSyncedLabel.textContent = "Last synced " + (sameDay ? time : d.toLocaleDateString() + " " + time);
   }
 
   // =========================================================================
@@ -762,6 +778,14 @@
     }).then(function (summary) {
       if (!opts.auto || summaryHasChanges(summary)) {
         showGlobalStatus(buildSyncSummaryText(summary), summary.failedFolders.length ? "error" : "success");
+      }
+      // Only a clean pass (no failed folders) counts as "synced" — a
+      // partial failure should keep showing the last time it fully
+      // succeeded, not paper over an ongoing problem.
+      if (!summary.failedFolders.length) {
+        localConfig.lastSyncedAt = new Date().toISOString();
+        saveLocalConfig();
+        renderLastSynced();
       }
     }).catch(function (err) {
       // Auto-sync failing silently (e.g. no cached session yet, popup
@@ -1565,6 +1589,7 @@
     loadLocalData();
     wireEvents();
     initMsal();
+    renderLastSynced();
     if (localConfig.gh) {
       ghPull(function () { render(); maybeAutoSync(); });
     } else {
