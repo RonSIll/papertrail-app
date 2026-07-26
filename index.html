@@ -109,10 +109,10 @@
 
   /* Content row: note list + preview panel (tag sidebar now lives outside this row, full height) */
   .content-row { flex: 1 1 auto; display: flex; overflow: hidden; }
-  /* Fixed/scrolling zones, top to bottom: a fixed blank header, a divider,
-     the tag list scrolling independently, another divider, a blank spacer,
-     the fixed file-type list, and a final blank spacer — scrolling the tag
-     list must never move anything above or below it. */
+  /* Fixed/scrolling zones, top to bottom: a "Tags" title, a divider, the
+     tag list scrolling independently, a divider, a "Note Types" title,
+     another divider, the fixed file-type list, and a final blank spacer —
+     scrolling the tag list must never move anything above or below it. */
   .tag-sidebar {
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
     background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
@@ -135,7 +135,7 @@
   .tag-list-scroll::-webkit-scrollbar-track { background: transparent; }
   .tag-list-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
   .tag-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
-  .type-list-header { flex: 0 0 32px; }
+  .type-list-header { flex: 0 0 54px; }
   .type-list { flex: 0 0 auto; padding: 4px 0; }
   .type-list-footer { flex: 0 0 64px; }
   .tag-sidebar-item {
@@ -251,6 +251,7 @@
     <div class="tag-list-scroll" id="tagList"></div>
     <div class="sidebar-divider"></div>
     <div class="type-list-header sidebar-section-title">Note Types</div>
+    <div class="sidebar-divider"></div>
     <div class="type-list" id="typeList"></div>
     <div class="type-list-footer"></div>
   </nav>
