@@ -1948,6 +1948,16 @@
         renderTagSidebar();
         renderTypeSidebar();
         renderNoteList();
+      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType)) {
+        // Third Escape in the sequence (focus search, clear text, clear
+        // filters) — only reached once the search box is both focused and
+        // already empty, so there's nothing left to clear but the tag/type
+        // selection.
+        searchState.tag = null;
+        searchState.fileType = null;
+        renderTagSidebar();
+        renderTypeSidebar();
+        renderNoteList();
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
         // starting at the top card regardless of any prior selection.
@@ -1961,9 +1971,16 @@
         selectNoteAtIndex(0);
       }
     });
-    // Global Escape: jump focus to search, unless a sheet is open — sheets
-    // have their own inputs (PAT, tag names, etc.) that Escape shouldn't
-    // yank focus out of.
+    // Global Escape, three presses in sequence: (1) from anywhere else,
+    // jumps focus to search — unless a sheet is open, since sheets have
+    // their own inputs (PAT, tag names, etc.) that Escape shouldn't yank
+    // focus out of; (2) with the search box focused and non-empty, clears
+    // the typed text (handled on the input's own keydown listener above);
+    // (3) with the search box focused and already empty, clears any active
+    // tag/type filter (also handled above). Each press only does the next
+    // thing that actually has something to clear, so a press can skip a
+    // step with nothing to do (e.g. clearing filters directly if there was
+    // no text to begin with).
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && el.backdrop.hidden) {
         el.searchInput.focus();
