@@ -765,9 +765,23 @@
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }).then(function (res) {
+      if (res.status === 429) throw makeThrottledError(res);
       if (!res.ok) throw new Error("Batch request failed: " + res.status);
       return res.json();
     });
+  }
+
+  // Graph throttling can show up two ways here: the whole $batch call
+  // itself returns 429 (caught above), or the batch call succeeds (200)
+  // but individual sub-responses inside it carry their own 429 — Graph's
+  // per-request throttling doesn't fail the envelope just because one of
+  // the 20 requests inside it got rate-limited. Both cases retry, not fail.
+  function makeThrottledError(res) {
+    var retryAfterSec = parseInt(res.headers && res.headers.get ? res.headers.get("Retry-After") : "", 10);
+    var err = new Error("Throttled");
+    err.throttled = true;
+    err.retryAfterMs = isNaN(retryAfterSec) ? null : retryAfterSec * 1000;
+    return err;
   }
 
   function chunkArray(arr, size) {
@@ -1123,14 +1137,17 @@
   }
 
   // One $batch call for up to 20 notes; updates modifiedAt in place on
-  // whichever ones succeed and reports how many failed so the caller can
-  // surface a count without aborting the whole run over one bad response.
-  function runBackfillBatch(notesBatch, token, driveBaseUrl) {
+  // whichever ones succeed. Returns the sub-batch of notes that came back
+  // throttled (empty if none) separately from a genuine failure count, so
+  // the caller can retry just the throttled ones with backoff instead of
+  // writing them off.
+  function runBackfillBatchOnce(notesBatch, token, driveBaseUrl) {
     var requests = notesBatch.map(function (n, i) {
       return { id: String(i), url: relativeDriveUrl(driveBaseUrl, "/items/" + n.driveItemId + "?$select=lastModifiedDateTime") };
     });
     return graphBatch(requests, token).then(function (result) {
       var failedCount = 0;
+      var throttled = [];
       (result.responses || []).forEach(function (r) {
         var note = notesBatch[Number(r.id)];
         if (!note) return;
@@ -1139,12 +1156,43 @@
         } else if (r.status === 404) {
           // Source file is gone — leave it for Sync's own delete-detection
           // to clean up on the next normal Sync run, not this pass's job.
+        } else if (r.status === 429) {
+          throttled.push(note);
         } else {
           failedCount++;
         }
       });
-      return failedCount;
+      return { failedCount: failedCount, throttled: throttled };
     });
+  }
+
+  // Retries throttled notes (batch-level 429, or individual 429s inside an
+  // otherwise-successful batch) with exponential backoff, honoring
+  // Retry-After when Graph sends one. Gives up after 5 attempts and counts
+  // whatever's still throttled at that point as failed — the note stays
+  // eligible for the next manual backfill run either way.
+  function runBackfillBatchWithRetry(notesBatch, token, driveBaseUrl, attempt) {
+    attempt = attempt || 1;
+    return runBackfillBatchOnce(notesBatch, token, driveBaseUrl).then(function (result) {
+      if (result.throttled.length === 0) return result.failedCount;
+      if (attempt >= 5) return result.failedCount + result.throttled.length;
+      return delay(backoffMs(attempt)).then(function () {
+        return runBackfillBatchWithRetry(result.throttled, token, driveBaseUrl, attempt + 1).then(function (stillFailed) {
+          return result.failedCount + stillFailed;
+        });
+      });
+    }).catch(function (err) {
+      if (err && err.throttled && attempt < 5) {
+        return delay(err.retryAfterMs || backoffMs(attempt)).then(function () {
+          return runBackfillBatchWithRetry(notesBatch, token, driveBaseUrl, attempt + 1);
+        });
+      }
+      return notesBatch.length; // non-throttling error, or out of retries
+    });
+  }
+
+  function backoffMs(attempt) {
+    return Math.min(2000 * Math.pow(2, attempt - 1), 20000);
   }
 
   function runBackfill() {
@@ -1163,15 +1211,20 @@
 
     getTokenForActiveAccount({ silentOnly: false }).then(function (token) {
       var batches = chunkArray(targets, 20);
+      var batchIndex = 0;
       return batches.reduce(function (p, batch) {
         return p.then(function () {
-          return runBackfillBatch(batch, token, acctCfg.driveBaseUrl).catch(function () {
-            return batch.length; // whole batch failed (e.g. a 429) — count all as failed, keep going
-          }).then(function (failedCount) {
+          return runBackfillBatchWithRetry(batch, token, acctCfg.driveBaseUrl).then(function (failedCount) {
             done += batch.length;
             failed += failedCount;
+            batchIndex++;
             el.backfillStatus.textContent = "Backfilling... " + done + "/" + total + (failed ? (" (" + failed + " failed)") : "");
-            return delay(200);
+            // Checkpoint locally every batch (cheap) and push to GitHub
+            // every ~10 batches (a real network write) so a run this long
+            // doesn't lose everything if the tab closes partway through.
+            saveLocalData();
+            if (batchIndex % 10 === 0) persistAndSync();
+            return delay(300);
           });
         });
       }, Promise.resolve());
