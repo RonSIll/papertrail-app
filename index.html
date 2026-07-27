@@ -103,10 +103,12 @@
   .last-synced { font-size: 12px; color: #8a8a90; white-space: nowrap; }
   .last-synced:empty { display: none; }
   /* Sort control: the arrow flips direction for whichever mode is active;
-     the whole "name modified added" run is one button that cycles through
-     the three modes on click, with the active word picked out in a
-     brighter color+weight against the other two, same dim gray as
-     .last-synced for the rest of the text. */
+     each of "name", "modified", "added" is independently clickable — click
+     a different word to switch straight to that mode (at its own default
+     direction), or click the already-active word to flip direction, same
+     as the arrow. The active word is picked out in a brighter color+weight
+     against the other two, same dim gray as .last-synced for the rest of
+     the text. */
   .sort-control { display: flex; align-items: center; gap: 6px; height: 36px; }
   /* line-height (not display:flex) is what centers the text vertically here
      — flex on a button with mixed text-node + <span> children collapses
@@ -117,11 +119,12 @@
     font-size: 16px; line-height: 36px; padding: 0; height: 36px;
   }
   .sort-cycle-btn {
-    background: none; border: none; cursor: pointer; font-size: 16px;
+    background: none; border: none; cursor: default; font-size: 16px;
     font-weight: 500; color: #8a8a90; white-space: nowrap; padding: 0;
     height: 36px; line-height: 36px;
   }
-  .sort-cycle-btn .sort-word { color: #8a8a90; }
+  .sort-cycle-btn .sort-word { color: #8a8a90; cursor: pointer; }
+  .sort-cycle-btn .sort-word:hover { color: #c8c8cc; }
   .sort-cycle-btn .sort-word.active { color: #c8c8cc; font-weight: 600; }
   /* Same dark gray as the topbar itself, no border — text/icon color
      matches .tag-sidebar-item's tag-name gray (the icons use
@@ -469,11 +472,10 @@
   // filter anything, just orders the results. Resets to the default
   // (added, newest-to-oldest) on every app load, same as search/filters
   // already do; nothing here is persisted. SORT_MODE_DEFAULT_ASCENDING is
-  // the direction each mode starts at the moment you cycle onto it: name
+  // the direction each mode starts at the moment you click onto it: name
   // starts A-to-Z, modified/added start newest-first, since that's what
   // most people expect from a date sort (e.g. Explorer's own Date
   // Modified column).
-  var SORT_MODES = ["name", "modified", "added"];
   var SORT_MODE_DEFAULT_ASCENDING = { name: true, modified: false, added: false };
   var sortState = { mode: "added", ascending: false };
 
@@ -2218,10 +2220,16 @@
       renderSortControl();
       renderNoteList();
     });
-    el.sortCycleBtn.addEventListener("click", function () {
-      var next = SORT_MODES[(SORT_MODES.indexOf(sortState.mode) + 1) % SORT_MODES.length];
-      sortState.mode = next;
-      sortState.ascending = SORT_MODE_DEFAULT_ASCENDING[next];
+    el.sortCycleBtn.addEventListener("click", function (e) {
+      var word = e.target.closest(".sort-word");
+      if (!word) return;
+      var mode = word.dataset.mode;
+      if (mode === sortState.mode) {
+        sortState.ascending = !sortState.ascending;
+      } else {
+        sortState.mode = mode;
+        sortState.ascending = SORT_MODE_DEFAULT_ASCENDING[mode];
+      }
       renderSortControl();
       renderNoteList();
     });
