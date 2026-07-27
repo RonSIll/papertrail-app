@@ -844,15 +844,35 @@
     return rest.replace(/^\//, "").split("/").join(" / ");
   }
 
-  // Reconstructs a note's real local folder path from folderBreadcrumb's
-  // " / "-joined display string — safe since folder names never contain
-  // " / " (a literal slash can't appear in a folder name at all). Returns
-  // null when the active account has no known local sync mirror (e.g.
-  // KellyVend today).
-  function localFolderPath(note, acctCfg) {
+  // Builds a real Windows path from a folder-location breadcrumb string
+  // plus the active account's local OneDrive sync root — safe to split on
+  // " / " since folder names never contain a literal slash. Returns null
+  // when the active account has no known local sync mirror (e.g. KellyVend
+  // today).
+  function buildLocalPath(breadcrumb, acctCfg) {
     if (!acctCfg || !acctCfg.localSyncRoot) return null;
-    var relPath = note.folderPath ? note.folderPath.split(" / ").join("\\") : "";
+    var relPath = breadcrumb ? breadcrumb.split(" / ").join("\\") : "";
     return acctCfg.localSyncRoot + (relPath ? "\\" + relPath : "");
+  }
+
+  // Resolves a note's CURRENT real folder location live via Graph (by its
+  // stable drive-item id) rather than trusting the cached folderPath
+  // breadcrumb, which can go stale: Sync only detects renames on the
+  // top-level tag folders themselves, and its delta processing skips
+  // folder-type change events entirely, so a subfolder renamed anywhere
+  // underneath a tracked folder never propagates into existing notes'
+  // breadcrumbs (confirmed live, 2026-07-27 — a folder several levels deep
+  // under 907 Cornerstone had its name changed and over a thousand notes
+  // never picked it up). Open and File Location both depend on this for
+  // correctness, since a stale local path just fails outright rather than
+  // opening — the live preview panel doesn't have this problem because it
+  // resolves everything by drive-item id via Graph, never a cached path.
+  function resolveLiveLocalPath(note, acctCfg, token) {
+    var metaUrl = acctCfg.driveBaseUrl + "/items/" + note.driveItemId + "?$select=parentReference";
+    return graphFetch(metaUrl, token).then(function (meta) {
+      var freshBreadcrumb = folderBreadcrumb(meta.parentReference ? meta.parentReference.path : "", acctCfg.tagRootPath);
+      return buildLocalPath(freshBreadcrumb, acctCfg);
+    });
   }
 
   // True only on the PC this app's protocol handlers are registered on —
@@ -862,24 +882,38 @@
     return navigator.userAgent.indexOf("Windows") !== -1;
   }
 
-  // Builds a "papertrail-explorer:" URI for the FILE LOCATION pill — a
-  // custom protocol, registered once on this PC (see
+  // FILE LOCATION pill and the Open pill's local-file path (see below) both
+  // resolve live then navigate to a "papertrail-explorer:" / "papertrail-
+  // openfile:" URI — a custom protocol, registered once on this PC (see
   // Apps/PaperTrail-RegisterProtocol.ps1 in the workshop root, outside this
-  // repo), that hands the path to a small VBS helper which opens native
-  // File Explorer there. A plain web link can't launch explorer.exe
-  // directly, only a registered protocol handler can.
-  function buildFileLocationHref(note, acctCfg) {
-    var folderPath = localFolderPath(note, acctCfg);
-    return folderPath ? "papertrail-explorer:" + encodeURIComponent(folderPath) : null;
+  // repo), that hands the path to a small VBS helper. A plain web link
+  // can't launch explorer.exe or a local file directly, only a registered
+  // protocol handler can.
+  function openFileLocationLive(note, acctCfg) {
+    getTokenForActiveAccount().then(function (token) {
+      return resolveLiveLocalPath(note, acctCfg, token);
+    }).then(function (folderPath) {
+      if (!folderPath) { showGlobalStatus("No local sync folder configured for this account.", "error"); return; }
+      window.location.href = "papertrail-explorer:" + encodeURIComponent(folderPath);
+    }).catch(function () {
+      showGlobalStatus("Couldn't resolve this note's current folder — try Sync, then try again.", "error");
+    });
   }
 
-  // Builds a "papertrail-openfile:" URI for the Open pill on PC — same
-  // registered-protocol mechanism as buildFileLocationHref, but the VBS
-  // handler (PaperTrail-OpenFile.vbs) opens the file itself with its
-  // default app instead of revealing the containing folder.
-  function buildOpenFileHref(note, acctCfg) {
-    var folderPath = localFolderPath(note, acctCfg);
-    return folderPath ? "papertrail-openfile:" + encodeURIComponent(folderPath + "\\" + note.filename) : null;
+  // Open pill / Enter-key shortcut for a local file: same live-resolve
+  // pattern as File Location above, opening the file itself with its
+  // default app (PaperTrail-OpenFile.vbs) instead of revealing the
+  // containing folder. Falls back to the OneDrive web link if the live
+  // lookup fails, rather than doing nothing.
+  function openLocalFileLive(note, acctCfg) {
+    getTokenForActiveAccount().then(function (token) {
+      return resolveLiveLocalPath(note, acctCfg, token);
+    }).then(function (folderPath) {
+      if (!folderPath) { window.open(note.webUrl, "_blank", "noopener"); return; }
+      window.location.href = "papertrail-openfile:" + encodeURIComponent(folderPath + "\\" + note.filename);
+    }).catch(function () {
+      window.open(note.webUrl, "_blank", "noopener");
+    });
   }
 
   // =========================================================================
@@ -1586,11 +1620,16 @@
     metaRow.appendChild(tag);
     var link = document.createElement("a");
     link.className = "note-link-pill";
-    var openFileHref = isDesktopPc() ? buildOpenFileHref(note, acctCfg) : null;
-    if (openFileHref) {
+    var canOpenLocal = isDesktopPc() && acctCfg && acctCfg.localSyncRoot;
+    if (canOpenLocal) {
       // PC with a known local sync root: open the real local file directly
-      // instead of routing through OneDrive's web view.
-      link.href = openFileHref;
+      // instead of routing through OneDrive's web view. Resolved live on
+      // click rather than a precomputed href — see openLocalFileLive.
+      link.href = "#";
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        openLocalFileLive(note, acctCfg);
+      });
     } else {
       // iPhone, or a PC account with no local sync root configured yet
       // (KellyVend today): fall back to the OneDrive web link.
@@ -1600,12 +1639,15 @@
     }
     link.textContent = "Open";
     metaRow.appendChild(link);
-    var fileLocHref = buildFileLocationHref(note, acctCfg);
-    if (fileLocHref) {
+    if (canOpenLocal) {
       var fileLoc = document.createElement("a");
       fileLoc.className = "note-link-pill";
-      fileLoc.href = fileLocHref;
+      fileLoc.href = "#";
       fileLoc.textContent = "File Location";
+      fileLoc.addEventListener("click", function (e) {
+        e.preventDefault();
+        openFileLocationLive(note, acctCfg);
+      });
       metaRow.appendChild(fileLoc);
     }
     wrap.appendChild(metaRow);
@@ -1773,9 +1815,8 @@
       // this was left on the old always-webUrl behavior when that was
       // added, so Enter silently diverged from clicking Open until now.
       var acctCfg = activeAccountConfig();
-      var openFileHref = isDesktopPc() ? buildOpenFileHref(note, acctCfg) : null;
-      if (openFileHref) {
-        window.location.href = openFileHref; // custom protocol, no new tab
+      if (isDesktopPc() && acctCfg && acctCfg.localSyncRoot) {
+        openLocalFileLive(note, acctCfg); // resolved live, see openLocalFileLive
       } else {
         window.open(note.webUrl, "_blank", "noopener");
       }
