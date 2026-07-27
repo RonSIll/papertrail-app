@@ -298,7 +298,7 @@
         <div class="topbar-right">
           <div class="sort-control">
             <button class="sort-arrow-btn" id="sortArrowBtn" title="Reverse sort direction">&#9650;</button>
-            <button class="sort-cycle-btn" id="sortCycleBtn">Sort by <span class="sort-word" data-mode="name">name</span> <span class="sort-word" data-mode="modified">modified</span> <span class="sort-word" data-mode="added">added</span></button>
+            <button class="sort-cycle-btn" id="sortCycleBtn">Sort by: <span class="sort-word" data-mode="name">name</span> <span class="sort-word" data-mode="modified">modified</span> <span class="sort-word" data-mode="added">added</span></button>
           </div>
           <div class="topbar-actions">
             <span class="last-synced" id="lastSyncedLabel"></span>
@@ -451,15 +451,16 @@
   var searchState = { text: "", tag: null, fileType: null };
 
   // Note-list display order — separate from searchState since it doesn't
-  // filter anything, just orders the results. Resets to the default (name,
-  // A-to-Z) on every app load, same as search/filters already do; nothing
-  // here is persisted. SORT_MODE_DEFAULT_ASCENDING is the direction each
-  // mode starts at the moment you cycle onto it: name starts A-to-Z,
-  // modified/added start newest-first, since that's what most people
-  // expect from a date sort (e.g. Explorer's own Date Modified column).
+  // filter anything, just orders the results. Resets to the default
+  // (added, newest-to-oldest) on every app load, same as search/filters
+  // already do; nothing here is persisted. SORT_MODE_DEFAULT_ASCENDING is
+  // the direction each mode starts at the moment you cycle onto it: name
+  // starts A-to-Z, modified/added start newest-first, since that's what
+  // most people expect from a date sort (e.g. Explorer's own Date
+  // Modified column).
   var SORT_MODES = ["name", "modified", "added"];
   var SORT_MODE_DEFAULT_ASCENDING = { name: true, modified: false, added: false };
-  var sortState = { mode: "name", ascending: true };
+  var sortState = { mode: "added", ascending: false };
 
   function compareNotes(a, b) {
     var mult = sortState.ascending ? 1 : -1;
