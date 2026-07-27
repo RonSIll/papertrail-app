@@ -421,9 +421,21 @@
   // Splits the search box text into words on whitespace, lowercased, empty
   // tokens dropped. A note matches only if every word is found somewhere in
   // its filename (AND, any order) — so "toy receipt" matches "receipt
-  // toyota.pdf" the same as "receipt toy" would.
+  // toyota.pdf" the same as "receipt toy" would. "Text in double quotes" is
+  // kept as one token instead of being split further, so it must appear as
+  // that exact contiguous phrase — e.g. "toyota tacoma" requires those two
+  // words adjacent, unlike the unquoted toyota tacoma which would still
+  // match "tacoma ... toyota" in any order.
   function searchWords() {
-    return searchState.text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    var text = searchState.text.trim().toLowerCase();
+    var words = [];
+    var re = /"([^"]*)"|(\S+)/g;
+    var m;
+    while ((m = re.exec(text))) {
+      var token = (m[1] !== undefined ? m[1] : m[2]).trim();
+      if (token) words.push(token);
+    }
+    return words;
   }
   function matchesSearchWords(filename, words) {
     if (!words.length) return true;
