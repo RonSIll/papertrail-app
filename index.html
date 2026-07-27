@@ -188,6 +188,8 @@
     text-decoration: none; cursor: pointer;
   }
   .note-path { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .note-modified { font-size: 12px; color: var(--text3); margin-top: 3px; }
+  .note-modified:empty { display: none; }
   .empty-state { color: var(--text3); font-size: 15px; padding: 60px 20px; text-align: center; }
 
   /* Sheets */
@@ -404,7 +406,7 @@
   //                  under the tag root) — there is no opt-in add/remove
   //                  step, and no subfolder-as-tag exception; a note's tag
   //                  is always its nearest top-level ancestor folder.
-  // note: { id, filename, tag, webUrl, folderPath, driveItemId, capturedAt }
+  // note: { id, filename, tag, webUrl, folderPath, driveItemId, capturedAt, modifiedAt }
   var data = {};
 
   var msalApp = null;
@@ -838,7 +840,8 @@
       webUrl: item.webUrl,
       folderPath: folderBreadcrumb(item.parentReference ? item.parentReference.path : "", acctCfg.tagRootPath),
       driveItemId: item.id,
-      capturedAt: new Date().toISOString()
+      capturedAt: new Date().toISOString(),
+      modifiedAt: item.lastModifiedDateTime || null
     };
   }
 
@@ -1017,6 +1020,7 @@
                   existing.folderPath = folderBreadcrumb(c.item.parentReference ? c.item.parentReference.path : "", acctCfg.tagRootPath);
                   summary.movedFileCount++;
                 }
+                existing.modifiedAt = c.item.lastModifiedDateTime || existing.modifiedAt;
                 delete deletedIds[itemId]; // matched by a create elsewhere — not really gone
               } else {
                 var note = makeNote(c.item, c.tagName, acctCfg);
@@ -1278,6 +1282,17 @@
     el.sidebarTotal.textContent = count === null ? "" : ("Showing " + count + " note" + (count === 1 ? "" : "s"));
   }
 
+  // Fixed mm/dd/yyyy format, independent of browser locale, for the note
+  // card's Modified line.
+  function formatMDY(isoString) {
+    if (!isoString) return "";
+    var d = new Date(isoString);
+    if (isNaN(d.getTime())) return "";
+    var mm = String(d.getMonth() + 1).padStart(2, "0");
+    var dd = String(d.getDate()).padStart(2, "0");
+    return mm + "/" + dd + "/" + d.getFullYear();
+  }
+
   function renderNoteRow(note, index) {
     var row = document.createElement("div");
     row.className = "note-row";
@@ -1304,6 +1319,12 @@
     metaRow.appendChild(path);
 
     card.appendChild(metaRow);
+
+    var modified = document.createElement("div");
+    modified.className = "note-modified";
+    modified.textContent = note.modifiedAt ? ("Modified: " + formatMDY(note.modifiedAt)) : "";
+    card.appendChild(modified);
+
     card.addEventListener("click", function (e) {
       selectNoteAtIndex(index);
     });
