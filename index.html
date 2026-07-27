@@ -101,15 +101,18 @@
      brighter color+weight against the other two, same dim gray as
      .last-synced for the rest of the text. */
   .sort-control { display: flex; align-items: center; gap: 6px; height: 36px; }
+  /* line-height (not display:flex) is what centers the text vertically here
+     — flex on a button with mixed text-node + <span> children collapses
+     the whitespace between them ("name modified added" rendering as
+     "namemodifiedadded"), a real flexbox gotcha hit and fixed live. */
   .sort-arrow-btn {
     background: none; border: none; color: #c8c8cc; cursor: pointer;
-    font-size: 16px; line-height: 1; padding: 0; height: 36px;
-    display: flex; align-items: center;
+    font-size: 16px; line-height: 36px; padding: 0; height: 36px;
   }
   .sort-cycle-btn {
     background: none; border: none; cursor: pointer; font-size: 16px;
     font-weight: 500; color: #8a8a90; white-space: nowrap; padding: 0;
-    height: 36px; display: flex; align-items: center;
+    height: 36px; line-height: 36px;
   }
   .sort-cycle-btn .sort-word { color: #8a8a90; }
   .sort-cycle-btn .sort-word.active { color: #c8c8cc; font-weight: 600; }
