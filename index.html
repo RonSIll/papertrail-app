@@ -90,6 +90,22 @@
   }
   .last-synced { font-size: 12px; color: #8a8a90; white-space: nowrap; }
   .last-synced:empty { display: none; }
+  /* Sort control: the arrow flips direction for whichever mode is active;
+     the whole "name modified added" run is one button that cycles through
+     the three modes on click, with the active word picked out in a
+     brighter color+weight against the other two, same dim gray as
+     .last-synced for the rest of the text. */
+  .sort-control { display: flex; align-items: center; gap: 4px; }
+  .sort-arrow-btn {
+    background: none; border: none; color: #c8c8cc; cursor: pointer;
+    font-size: 11px; padding: 4px 2px; line-height: 1;
+  }
+  .sort-cycle-btn {
+    background: none; border: none; cursor: pointer; font-size: 12px;
+    color: #8a8a90; white-space: nowrap; padding: 0;
+  }
+  .sort-cycle-btn .sort-word { color: #8a8a90; }
+  .sort-cycle-btn .sort-word.active { color: #c8c8cc; font-weight: 600; }
   /* Same dark gray as the topbar itself, no border — text/icon color
      matches .tag-sidebar-item's tag-name gray (the icons use
      stroke="currentColor", so they follow automatically). */
@@ -270,6 +286,10 @@
           <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search filenames…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
         </div>
         <div class="topbar-right">
+          <div class="sort-control">
+            <button class="sort-arrow-btn" id="sortArrowBtn" title="Reverse sort direction">&#9650;</button>
+            <button class="sort-cycle-btn" id="sortCycleBtn">Sort by <span class="sort-word" data-mode="name">name</span> <span class="sort-word" data-mode="modified">modified</span> <span class="sort-word" data-mode="added">added</span></button>
+          </div>
           <span class="last-synced" id="lastSyncedLabel"></span>
           <button class="icon-btn-top" id="syncBtn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -418,6 +438,26 @@
   var msalInitPromise = null;
   var searchState = { text: "", tag: null, fileType: null };
 
+  // Note-list display order — separate from searchState since it doesn't
+  // filter anything, just orders the results. Resets to the default (name,
+  // A-to-Z) on every app load, same as search/filters already do; nothing
+  // here is persisted. SORT_MODE_DEFAULT_ASCENDING is the direction each
+  // mode starts at the moment you cycle onto it: name starts A-to-Z,
+  // modified/added start newest-first, since that's what most people
+  // expect from a date sort (e.g. Explorer's own Date Modified column).
+  var SORT_MODES = ["name", "modified", "added"];
+  var SORT_MODE_DEFAULT_ASCENDING = { name: true, modified: false, added: false };
+  var sortState = { mode: "name", ascending: true };
+
+  function compareNotes(a, b) {
+    var mult = sortState.ascending ? 1 : -1;
+    if (sortState.mode === "name") {
+      return mult * a.filename.localeCompare(b.filename, undefined, { sensitivity: "base" });
+    }
+    var field = sortState.mode === "modified" ? "modifiedAt" : "capturedAt";
+    return mult * (new Date(a[field] || 0) - new Date(b[field] || 0));
+  }
+
   // Splits the search box text into words on whitespace, lowercased, empty
   // tokens dropped. A note matches only if every word is found somewhere in
   // its filename (AND, any order) — so "toy receipt" matches "receipt
@@ -481,6 +521,7 @@
   function cacheEls() {
     [
       "accountRow","accountSelect","addAccountBtn","searchInput","content","contentRight","tagList","typeList","sidebarTotal","globalStatusMsg",
+      "sortArrowBtn","sortCycleBtn",
       "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
       "trackedFoldersSheet","trackedFoldersBack","trackedFoldersList",
@@ -1366,6 +1407,7 @@
     renderAccountSelect();
     renderTagSidebar();
     renderTypeSidebar();
+    renderSortControl();
     renderNoteList();
   }
 
@@ -1500,7 +1542,7 @@
       var matchesTag = !searchState.tag || n.tag === searchState.tag;
       var matchesType = !searchState.fileType || noteFileType(n) === searchState.fileType;
       return matchesText && matchesTag && matchesType;
-    }).sort(function (a, b) { return new Date(b.capturedAt) - new Date(a.capturedAt); });
+    }).sort(compareNotes);
 
     renderSidebarTotal(notes.length);
     if (notes.length === 0) {
@@ -1512,6 +1554,18 @@
     }
     visibleNotes = notes;
     notes.forEach(function (n, i) { el.content.appendChild(renderNoteRow(n, i)); });
+  }
+
+  // Updates the sort control's arrow direction and which of the three mode
+  // words is highlighted, without touching the note list itself — called
+  // separately from renderNoteList so a plain re-sort doesn't need to
+  // rebuild the whole card list from scratch.
+  function renderSortControl() {
+    if (!el.sortArrowBtn) return;
+    el.sortArrowBtn.innerHTML = sortState.ascending ? "&#9650;" : "&#9660;";
+    Array.prototype.forEach.call(el.sortCycleBtn.querySelectorAll(".sort-word"), function (span) {
+      span.classList.toggle("active", span.dataset.mode === sortState.mode);
+    });
   }
 
   // Bottom-of-sidebar total, styled like .tag-count/.type-count — reflects
@@ -2061,6 +2115,19 @@
       if (selectedIndex === -1 || !visibleNotes[selectedIndex]) return;
       e.preventDefault();
       openNoteTarget(visibleNotes[selectedIndex]);
+    });
+
+    el.sortArrowBtn.addEventListener("click", function () {
+      sortState.ascending = !sortState.ascending;
+      renderSortControl();
+      renderNoteList();
+    });
+    el.sortCycleBtn.addEventListener("click", function () {
+      var next = SORT_MODES[(SORT_MODES.indexOf(sortState.mode) + 1) % SORT_MODES.length];
+      sortState.mode = next;
+      sortState.ascending = SORT_MODE_DEFAULT_ASCENDING[next];
+      renderSortControl();
+      renderNoteList();
     });
 
     el.syncBtn.addEventListener("click", function () { runSync(); });
