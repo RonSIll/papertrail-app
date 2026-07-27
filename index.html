@@ -213,6 +213,11 @@
     color: var(--accent); background: rgba(79,107,255,0.12); padding: 2px 7px;
     text-decoration: none; cursor: pointer;
   }
+  /* Keyboard-only focus ring for Left/Right cycling between the notecard,
+     Open, and File Location (see pillFocus) — distinct from the note
+     card's own always-on .selected border, which never goes away while
+     this is cycling. */
+  .note-link-pill.pill-focused { box-shadow: 0 0 0 2px var(--accent); }
   .note-path { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   .note-modified { font-size: 12px; color: var(--text3); margin-top: 3px; }
   .note-modified:empty { display: none; }
@@ -524,6 +529,13 @@
   var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
   var visibleNotes = []; // the currently filtered/sorted note list, in the same order as the rendered cards
   var selectedIndex = -1; // index into visibleNotes of the selected card, -1 for none
+  // Left/Right on a selected note card cycle a keyboard-only "which action
+  // would Enter trigger" focus, independent of the card's own (always-on)
+  // selected highlight: null = plain notecard, "open" = the Open pill,
+  // "location" = the File Location pill. Reset to null every time the
+  // selected card changes (selectNoteAtIndex) so it never carries over to
+  // a different note.
+  var pillFocus = null;
   var pendingConfirm = null;
   var pendingConfirmCancel = null; // optional — runs if the confirm sheet is dismissed/cancelled instead of confirmed
 
@@ -1538,6 +1550,7 @@
     el.content.innerHTML = "";
     selectedCardEl = null;
     selectedIndex = -1;
+    pillFocus = null;
     visibleNotes = [];
     renderPreview(null);
     var acctData = activeAccountData();
@@ -1645,6 +1658,7 @@
     if (visibleNotes.length === 0) return;
     i = Math.max(0, Math.min(i, visibleNotes.length - 1));
     selectedIndex = i;
+    pillFocus = null; // a fresh card always starts on the plain notecard, never carries over Open/File Location focus from the last one
     var card = document.querySelectorAll(".note-card")[i];
     if (!card) return;
     if (selectedCardEl) selectedCardEl.classList.remove("selected");
@@ -1652,6 +1666,17 @@
     selectedCardEl = card;
     card.scrollIntoView({ block: "nearest" });
     renderPreview(visibleNotes[i]);
+  }
+
+  // Applies pillFocus's current value as a visible focus ring on whichever
+  // pill it names (or none, for the plain-notecard state) — called after
+  // every renderPreview (the pills are rebuilt fresh each time) and after
+  // every Left/Right key press.
+  function updatePillFocusVisual() {
+    var openPill = document.getElementById("previewOpenPill");
+    var fileLocPill = document.getElementById("previewFileLocPill");
+    if (openPill) openPill.classList.toggle("pill-focused", pillFocus === "open");
+    if (fileLocPill) fileLocPill.classList.toggle("pill-focused", pillFocus === "location");
   }
 
   // Right panel: shows a thumbnail (via Graph's /thumbnails endpoint — no
@@ -1687,6 +1712,7 @@
     metaRow.appendChild(tag);
     var link = document.createElement("a");
     link.className = "note-link-pill";
+    link.id = "previewOpenPill";
     var canOpenLocal = isDesktopPc() && acctCfg && acctCfg.localSyncRoot;
     if (canOpenLocal) {
       // PC with a known local sync root: open the real local file directly
@@ -1709,6 +1735,7 @@
     if (canOpenLocal) {
       var fileLoc = document.createElement("a");
       fileLoc.className = "note-link-pill";
+      fileLoc.id = "previewFileLocPill";
       fileLoc.href = "#";
       fileLoc.textContent = "File Location";
       fileLoc.addEventListener("click", function (e) {
@@ -1718,6 +1745,7 @@
       metaRow.appendChild(fileLoc);
     }
     wrap.appendChild(metaRow);
+    updatePillFocusVisual(); // pillFocus was already reset to null in selectNoteAtIndex
 
     var thumbSlot = document.createElement("div");
     thumbSlot.className = "preview-thumb-slot";
@@ -2117,9 +2145,31 @@
         selectNoteAtIndex(selectedIndex === -1 ? visibleNotes.length - 1 : selectedIndex - 1);
       }
     });
-    // Enter: open the selected note's target (a .url shortcut's real site
-    // if it resolves, otherwise the OneDrive document) — same guards as
-    // the arrow-key navigation above.
+    // Left/Right on a selected note: cycle pillFocus through notecard ->
+    // Open -> File Location -> back to notecard (and the reverse with
+    // Left), skipping File Location entirely for notes that don't have it
+    // (iPhone, or an account with no local sync root). Purely a keyboard
+    // focus indicator — Enter below is what actually acts on it.
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (!el.backdrop.hidden) return;
+      var tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (selectedIndex === -1 || !visibleNotes[selectedIndex]) return;
+      e.preventDefault();
+      var hasFileLocation = !!document.getElementById("previewFileLocPill");
+      var order = hasFileLocation ? [null, "open", "location"] : [null, "open"];
+      var idx = order.indexOf(pillFocus);
+      idx = e.key === "ArrowRight" ? (idx + 1) % order.length : (idx - 1 + order.length) % order.length;
+      pillFocus = order[idx];
+      updatePillFocusVisual();
+    });
+    // Enter: acts on whatever pillFocus currently points at. null (the
+    // plain notecard) and "open" both trigger the same Open action Enter
+    // has always triggered (a .url shortcut's real site if it resolves,
+    // otherwise the OneDrive document/local file); "location" is new,
+    // triggering File Location instead — same guards as the arrow-key
+    // navigation above.
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Enter") return;
       if (!el.backdrop.hidden) return;
@@ -2127,7 +2177,13 @@
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (selectedIndex === -1 || !visibleNotes[selectedIndex]) return;
       e.preventDefault();
-      openNoteTarget(visibleNotes[selectedIndex]);
+      var note = visibleNotes[selectedIndex];
+      if (pillFocus === "location") {
+        var acctCfg = activeAccountConfig();
+        if (isDesktopPc() && acctCfg && acctCfg.localSyncRoot) openFileLocationLive(note, acctCfg);
+        return;
+      }
+      openNoteTarget(note);
     });
 
     el.sortArrowBtn.addEventListener("click", function () {
