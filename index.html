@@ -72,8 +72,13 @@
   .topbar-left { flex: 1 1 0; min-width: 0; padding: 0 16px; }
   .topbar-right {
     flex: 1 1 0; min-width: 0; padding: 0 16px; border-left: 1px solid transparent;
-    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+    display: flex; align-items: center; gap: 6px;
   }
+  /* Wraps Last synced/Sync/Manage and pushes just that group to the far
+     right via the auto margin, leaving .sort-control anchored at the start
+     of .topbar-right — i.e. directly against the right edge of the search
+     box in .topbar-left, not dragged along with the rest of the group. */
+  .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
   .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .account-select {
     flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px; font-weight: 500;
@@ -95,14 +100,16 @@
      the three modes on click, with the active word picked out in a
      brighter color+weight against the other two, same dim gray as
      .last-synced for the rest of the text. */
-  .sort-control { display: flex; align-items: center; gap: 4px; }
+  .sort-control { display: flex; align-items: center; gap: 6px; height: 36px; }
   .sort-arrow-btn {
     background: none; border: none; color: #c8c8cc; cursor: pointer;
-    font-size: 11px; padding: 4px 2px; line-height: 1;
+    font-size: 16px; line-height: 1; padding: 0; height: 36px;
+    display: flex; align-items: center;
   }
   .sort-cycle-btn {
-    background: none; border: none; cursor: pointer; font-size: 12px;
-    color: #8a8a90; white-space: nowrap; padding: 0;
+    background: none; border: none; cursor: pointer; font-size: 16px;
+    font-weight: 500; color: #8a8a90; white-space: nowrap; padding: 0;
+    height: 36px; display: flex; align-items: center;
   }
   .sort-cycle-btn .sort-word { color: #8a8a90; }
   .sort-cycle-btn .sort-word.active { color: #c8c8cc; font-weight: 600; }
@@ -290,15 +297,17 @@
             <button class="sort-arrow-btn" id="sortArrowBtn" title="Reverse sort direction">&#9650;</button>
             <button class="sort-cycle-btn" id="sortCycleBtn">Sort by <span class="sort-word" data-mode="name">name</span> <span class="sort-word" data-mode="modified">modified</span> <span class="sort-word" data-mode="added">added</span></button>
           </div>
-          <span class="last-synced" id="lastSyncedLabel"></span>
-          <button class="icon-btn-top" id="syncBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            Sync
-          </button>
-          <button class="icon-btn-top" id="manageBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Manage
-          </button>
+          <div class="topbar-actions">
+            <span class="last-synced" id="lastSyncedLabel"></span>
+            <button class="icon-btn-top" id="syncBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Sync
+            </button>
+            <button class="icon-btn-top" id="manageBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Manage
+            </button>
+          </div>
         </div>
       </div>
     </div>
