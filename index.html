@@ -301,6 +301,11 @@
     <div class="settings-row" data-target="trackedFolders">Tracked folders<span class="chevron">&#8250;</span></div>
     <div class="settings-row" data-target="tags">Tags<span class="chevron">&#8250;</span></div>
     <div class="settings-row" data-target="accounts">Accounts &amp; connections<span class="chevron">&#8250;</span></div>
+    <div style="padding-top:14px;">
+      <div style="font-size:15px; font-weight:500; color:var(--text);">Backfill Modified Dates</div>
+      <div class="settings-note" id="backfillStatus">One-time pass to fill in the Modified date on notes captured before this feature shipped.</div>
+      <div class="btn-row"><button class="btn-secondary" id="backfillBtn">Run backfill</button></div>
+    </div>
   </div>
 </div>
 
@@ -470,6 +475,7 @@
       "tagsSheet","tagsBack","tagsList",
       "accountsSheet","accountsBack","azureClientId","accountsList","accountsAddBtn",
       "ghOwner","ghRepo","ghPat","ghSaveBtn","ghSyncNote",
+      "backfillBtn","backfillStatus",
       "confirmSheet","confirmText","confirmYes","confirmNo","confirmClose"
     ].forEach(function (id) { el[id] = document.getElementById(id); });
   }
@@ -741,6 +747,36 @@
   function encodeURIComponentPath(path) {
     return path.split("/").map(encodeURIComponent).join("/");
   }
+
+  var GRAPH_ROOT = "https://graph.microsoft.com/v1.0";
+
+  // $batch request URLs must be relative to the v1.0 root, not the
+  // absolute driveBaseUrl (which is itself already an absolute URL, e.g.
+  // "https://graph.microsoft.com/v1.0/me/drive").
+  function relativeDriveUrl(driveBaseUrl, suffix) {
+    var base = driveBaseUrl.indexOf(GRAPH_ROOT) === 0 ? driveBaseUrl.slice(GRAPH_ROOT.length) : driveBaseUrl;
+    return base + suffix;
+  }
+
+  function graphBatch(requests, token) {
+    var body = { requests: requests.map(function (r) { return { id: r.id, method: "GET", url: r.url }; }) };
+    return fetch(GRAPH_ROOT + "/$batch", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) throw new Error("Batch request failed: " + res.status);
+      return res.json();
+    });
+  }
+
+  function chunkArray(arr, size) {
+    var out = [];
+    for (var i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  }
+
+  function delay(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
   // Recursively walks a folder (by drive item id) and returns every file
   // (not subfolder) found at any depth, per the decided full-recursion rule.
@@ -1048,6 +1084,110 @@
       renderTrackedFoldersList();
       renderTagsList();
       return summary;
+    });
+  }
+
+  // =========================================================================
+  // Backfill Modified Dates — one-time pass for notes that predate the
+  // Modified-date feature. Sync's own delta feed only reports files that
+  // actually changed, so a note untouched since it was captured never gets
+  // its modifiedAt populated through normal Sync; this walks every note
+  // missing the field and fetches its current lastModifiedDateTime directly,
+  // batched via Graph's $batch endpoint (up to 20 requests per call) to
+  // avoid one HTTP round-trip per note across a note list that can run into
+  // the thousands. Batches run one at a time, not in parallel, with a short
+  // pause between each, to stay well under Graph's throttling limits rather
+  // than racing to finish as fast as possible.
+  // =========================================================================
+  var backfillInProgress = false;
+
+  function notesMissingModifiedDate(acctData) {
+    return acctData ? acctData.notes.filter(function (n) { return !n.modifiedAt; }) : [];
+  }
+
+  function renderBackfillStatus() {
+    if (!el.backfillStatus) return;
+    var acctData = activeAccountData();
+    var missing = notesMissingModifiedDate(acctData);
+    if (backfillInProgress) return; // runBackfill owns the status text while running
+    if (!acctData || acctData.notes.length === 0) {
+      el.backfillStatus.textContent = "No notes yet — run Sync first.";
+      el.backfillBtn.disabled = true;
+    } else if (missing.length === 0) {
+      el.backfillStatus.textContent = "Every note already has a Modified date.";
+      el.backfillBtn.disabled = true;
+    } else {
+      el.backfillStatus.textContent = missing.length + " note" + (missing.length === 1 ? "" : "s") + " missing a Modified date.";
+      el.backfillBtn.disabled = false;
+    }
+  }
+
+  // One $batch call for up to 20 notes; updates modifiedAt in place on
+  // whichever ones succeed and reports how many failed so the caller can
+  // surface a count without aborting the whole run over one bad response.
+  function runBackfillBatch(notesBatch, token, driveBaseUrl) {
+    var requests = notesBatch.map(function (n, i) {
+      return { id: String(i), url: relativeDriveUrl(driveBaseUrl, "/items/" + n.driveItemId + "?$select=lastModifiedDateTime") };
+    });
+    return graphBatch(requests, token).then(function (result) {
+      var failedCount = 0;
+      (result.responses || []).forEach(function (r) {
+        var note = notesBatch[Number(r.id)];
+        if (!note) return;
+        if (r.status === 200 && r.body && r.body.lastModifiedDateTime) {
+          note.modifiedAt = r.body.lastModifiedDateTime;
+        } else if (r.status === 404) {
+          // Source file is gone — leave it for Sync's own delete-detection
+          // to clean up on the next normal Sync run, not this pass's job.
+        } else {
+          failedCount++;
+        }
+      });
+      return failedCount;
+    });
+  }
+
+  function runBackfill() {
+    if (backfillInProgress) return;
+    var acctCfg = activeAccountConfig();
+    var acctData = activeAccountData();
+    var targets = notesMissingModifiedDate(acctData);
+    if (!acctCfg || !acctData || targets.length === 0) { renderBackfillStatus(); return; }
+
+    backfillInProgress = true;
+    el.backfillBtn.disabled = true;
+    var total = targets.length;
+    var done = 0;
+    var failed = 0;
+    el.backfillStatus.textContent = "Backfilling... 0/" + total;
+
+    getTokenForActiveAccount({ silentOnly: false }).then(function (token) {
+      var batches = chunkArray(targets, 20);
+      return batches.reduce(function (p, batch) {
+        return p.then(function () {
+          return runBackfillBatch(batch, token, acctCfg.driveBaseUrl).catch(function () {
+            return batch.length; // whole batch failed (e.g. a 429) — count all as failed, keep going
+          }).then(function (failedCount) {
+            done += batch.length;
+            failed += failedCount;
+            el.backfillStatus.textContent = "Backfilling... " + done + "/" + total + (failed ? (" (" + failed + " failed)") : "");
+            return delay(200);
+          });
+        });
+      }, Promise.resolve());
+    }).then(function () {
+      persistAndSync();
+      render();
+      backfillInProgress = false;
+      renderBackfillStatus();
+      if (failed) showGlobalStatus(failed + " of " + total + " notes couldn't be backfilled — run again to retry just those.", "error");
+      else showGlobalStatus("Backfilled the Modified date for " + total + " notes.", "success");
+    }).catch(function (err) {
+      persistAndSync();
+      render();
+      backfillInProgress = false;
+      renderBackfillStatus();
+      showGlobalStatus("Backfill stopped: " + (err && err.message ? err.message : err) + " — notes already updated were saved, run again to continue.", "error");
     });
   }
 
@@ -1802,7 +1942,8 @@
 
     el.syncBtn.addEventListener("click", function () { runSync(); });
 
-    el.manageBtn.addEventListener("click", function () { openSheet("settingsHomeSheet"); });
+    el.manageBtn.addEventListener("click", function () { renderBackfillStatus(); openSheet("settingsHomeSheet"); });
+    el.backfillBtn.addEventListener("click", runBackfill);
     el.settingsHomeClose.addEventListener("click", function () { closeSheet("settingsHomeSheet"); });
     Array.prototype.forEach.call(document.querySelectorAll("#settingsHomeSheet .settings-row"), function (row) {
       row.addEventListener("click", function () {
