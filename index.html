@@ -1587,7 +1587,8 @@
       return;
     }
     var words = searchWords();
-    var notes = acctData.notes.filter(function (n) {
+    var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType;
+    var notes = noFilterActive ? [] : acctData.notes.filter(function (n) {
       var matchesText = matchesSearchWords(n.filename, words);
       var matchesTag = !searchState.tag || n.tag === searchState.tag;
       var matchesType = !searchState.fileType || noteFileType(n) === searchState.fileType;
@@ -1598,7 +1599,9 @@
     if (notes.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = acctData.notes.length === 0 ? "No notes captured yet." : "No notes match your search.";
+      empty.textContent = acctData.notes.length === 0 ? "No notes captured yet."
+        : noFilterActive ? "Type a search or select a filter to see notes."
+        : "No notes match your search.";
       el.content.appendChild(empty);
       return;
     }
