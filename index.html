@@ -1064,7 +1064,7 @@
   function performSync(acctCfg, token) {
     var acctData = activeAccountData();
     var driveBaseUrl = acctCfg.driveBaseUrl;
-    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, failedFolders: [] };
+    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, renamedFileCount: 0, failedFolders: [] };
 
     return listChildrenByPath(driveBaseUrl, acctCfg.tagRootPath, token).then(function (rootChildren) {
       var realFolders = rootChildren.filter(function (c) { return c.folder; });
@@ -1192,6 +1192,16 @@
                   existing.tag = c.tagName;
                   existing.folderPath = folderBreadcrumb(c.item.parentReference ? c.item.parentReference.path : "", acctCfg.tagRootPath);
                   summary.movedFileCount++;
+                }
+                // A plain rename (same folder, same drive-item id, new name)
+                // never shows up as a tag change above, so it needs its own
+                // check — otherwise the note card and the Open pill's local
+                // path (built from this stored filename, see
+                // openLocalFileLive) both go stale against the real file.
+                if (existing.filename !== c.item.name) {
+                  existing.filename = c.item.name;
+                  existing.webUrl = c.item.webUrl;
+                  summary.renamedFileCount++;
                 }
                 existing.modifiedAt = c.item.lastModifiedDateTime || existing.modifiedAt;
                 delete deletedIds[itemId]; // matched by a create elsewhere — not really gone
@@ -1413,6 +1423,9 @@
     if (summary.movedFileCount) {
       parts.push(summary.movedFileCount + " file" + (summary.movedFileCount === 1 ? "" : "s") + " re-tagged after moving folders");
     }
+    if (summary.renamedFileCount) {
+      parts.push(summary.renamedFileCount + " file" + (summary.renamedFileCount === 1 ? "" : "s") + " renamed");
+    }
     if (summary.newFileCount) {
       parts.push(summary.newFileCount + " new file" + (summary.newFileCount === 1 ? "" : "s") + " found");
     }
@@ -1432,7 +1445,7 @@
 
   function summaryHasChanges(summary) {
     return summary.newFolders.length > 0 || summary.renamedFolders.length > 0 ||
-      summary.movedFileCount > 0 || summary.newFileCount > 0 || summary.deletedFileCount > 0 ||
+      summary.movedFileCount > 0 || summary.renamedFileCount > 0 || summary.newFileCount > 0 || summary.deletedFileCount > 0 ||
       summary.removedFolders.some(function (r) { return r.deleted; }) || summary.failedFolders.length > 0;
   }
 
