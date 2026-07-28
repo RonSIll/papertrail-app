@@ -1595,7 +1595,7 @@
       return matchesText && matchesTag && matchesType;
     }).sort(compareNotes);
 
-    renderSidebarTotal(notes.length);
+    renderSidebarTotal(notes.length, acctData.notes.length);
     if (notes.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty-state";
@@ -1627,11 +1627,11 @@
     });
   }
 
-  // Bottom-of-sidebar total, styled like .tag-count/.type-count — reflects
-  // the currently showing (filtered) note count, same set as visibleNotes.
-  function renderSidebarTotal(count) {
+  // Bottom-of-sidebar total, styled like .tag-count/.type-count — shows the
+  // currently showing (filtered) note count against the account's total.
+  function renderSidebarTotal(count, total) {
     if (!el.sidebarTotal) return;
-    el.sidebarTotal.textContent = count === null ? "" : ("Showing " + count + " note" + (count === 1 ? "" : "s"));
+    el.sidebarTotal.textContent = count === null ? "" : ("Showing " + count + " of " + total + " notes");
   }
 
   // Fixed mm/dd/yyyy format, independent of browser locale, for the note
