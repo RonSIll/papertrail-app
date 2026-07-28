@@ -1730,8 +1730,24 @@
     var link = document.createElement("a");
     link.className = "note-link-pill";
     link.id = "previewOpenPill";
+    var isUrlLike = /\.url$/i.test(note.filename) || /\.lnk$/i.test(note.filename);
     var canOpenLocal = isDesktopPc() && acctCfg && acctCfg.localSyncRoot;
-    if (canOpenLocal) {
+    if (isUrlLike) {
+      // .url notes, and .lnk notes that resolved to a URL at Sync time,
+      // always open the resolved website directly, on every platform and
+      // account — reuses openNoteTarget's own resolve-and-open logic
+      // (cached _resolvedTargetUrl when it's already landed, live
+      // fetch/redirect fallback otherwise) instead of the local-file/webUrl
+      // branching below, which used to make Open redundant with the
+      // site-preview's separate Visit link on a PC with a local sync root,
+      // and land on OneDrive's web viewer instead of the real site
+      // everywhere else. See openNoteTarget for the shared implementation.
+      link.href = "#";
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        openNoteTarget(note);
+      });
+    } else if (canOpenLocal) {
       // PC with a known local sync root: open the real local file directly
       // instead of routing through OneDrive's web view. Resolved live on
       // click rather than a precomputed href — see openLocalFileLive.
@@ -1976,14 +1992,8 @@
     host.textContent = hostname;
     info.appendChild(host);
 
-    var visit = document.createElement("a");
-    visit.className = "note-link-pill";
-    visit.href = targetUrl;
-    visit.target = "_blank";
-    visit.rel = "noopener";
-    visit.textContent = "Visit";
-    info.appendChild(visit);
-
+    // No separate "Visit" link here — the Open pill above now opens this
+    // same resolved URL directly on every platform/account, see renderPreview.
     slot.appendChild(info);
   }
 
