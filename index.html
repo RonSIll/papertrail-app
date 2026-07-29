@@ -1430,6 +1430,12 @@
   // =========================================================================
   var breadcrumbRefreshInProgress = false;
 
+  // The result banner (shown via showGlobalStatus once the run finishes) is
+  // easy to miss if you're not watching the screen at that exact moment —
+  // Ron hit this live 2026-07-29. So the last run's outcome is also
+  // persisted to localConfig and shown here, in the same standing spot
+  // under the button, until the next run overwrites it — same pattern as
+  // the "Last synced" label next to the Sync button.
   function renderBreadcrumbRefreshStatus() {
     if (!el.breadcrumbRefreshStatus) return;
     var acctData = activeAccountData();
@@ -1437,10 +1443,19 @@
     if (!acctData || acctData.notes.length === 0) {
       el.breadcrumbRefreshStatus.textContent = "No notes yet — run Sync first.";
       el.breadcrumbRefreshBtn.disabled = true;
-    } else {
-      el.breadcrumbRefreshStatus.textContent = "One-time pass to fix any note's displayed folder location left stale by a subfolder rename from before Sync started catching these automatically.";
-      el.breadcrumbRefreshBtn.disabled = false;
+      return;
     }
+    el.breadcrumbRefreshBtn.disabled = false;
+    var last = localConfig.lastBreadcrumbRefresh;
+    if (!last) {
+      el.breadcrumbRefreshStatus.textContent = "One-time pass to fix any note's displayed folder location left stale by a subfolder rename from before Sync started catching these automatically.";
+      return;
+    }
+    var d = new Date(last.at);
+    var sameDay = d.toDateString() === new Date().toDateString();
+    var time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    var when = sameDay ? time : (d.toLocaleDateString() + " " + time);
+    el.breadcrumbRefreshStatus.textContent = "Last run " + when + ": checked " + last.checked + " note" + (last.checked === 1 ? "" : "s") + ", " + last.changed + " breadcrumb" + (last.changed === 1 ? "" : "s") + " fixed" + (last.failed ? (" (" + last.failed + " couldn't be checked)") : "") + ".";
   }
 
   // One $batch call for up to 20 notes; updates folderPath in place on
@@ -1532,6 +1547,8 @@
       persistAndSync();
       render();
       breadcrumbRefreshInProgress = false;
+      localConfig.lastBreadcrumbRefresh = { at: new Date().toISOString(), checked: total, changed: changed, failed: failed };
+      saveLocalConfig();
       renderBreadcrumbRefreshStatus();
       if (failed) showGlobalStatus(failed + " of " + total + " notes couldn't be checked — run again to retry.", "error");
       else showGlobalStatus("Checked " + total + " notes — " + changed + " folder-location breadcrumb" + (changed === 1 ? "" : "s") + " fixed.", "success");
