@@ -399,16 +399,6 @@
   </div>
 </div>
 
-<!-- Generic confirm sheet -->
-<div class="sheet" id="confirmSheet" hidden style="max-height:220px;">
-  <div class="sheet-header"><span></span><button id="confirmClose">&#10005;</button></div>
-  <div class="note-filename" id="confirmText" style="margin-bottom:14px;"></div>
-  <div class="btn-row">
-    <button class="btn-danger" id="confirmYes">Delete</button>
-    <button class="btn-secondary" id="confirmNo">Cancel</button>
-  </div>
-</div>
-
 <script>
 (function () {
   "use strict";
@@ -458,10 +448,7 @@
   // data = { [accountKey]: { trackedFolders: [...], tags: [...], notes: [...] } }
   // trackedFolder: { id (drive item id), name (always == its real top-level
   //                  folder name, and == the tag every note under it gets),
-  //                  deltaLink, path (folder path for display),
-  //                  lastRemovalPromptAt (set only once Sync finds this
-  //                  folder missing and asks about deleting its notes —
-  //                  throttles the confirmation to at most once/day) }.
+  //                  deltaLink, path (folder path for display) }.
   //                  Tracking is fully automatic (every top-level folder
   //                  under the tag root) — there is no opt-in add/remove
   //                  step, and no subfolder-as-tag exception; a note's tag
@@ -552,8 +539,6 @@
   // selected card changes (selectNoteAtIndex) so it never carries over to
   // a different note.
   var pillFocus = null;
-  var pendingConfirm = null;
-  var pendingConfirmCancel = null; // optional — runs if the confirm sheet is dismissed/cancelled instead of confirmed
 
   // =========================================================================
   // DOM refs
@@ -570,14 +555,13 @@
       "accountsSheet","accountsBack","azureClientId","accountsList","accountsAddBtn",
       "ghOwner","ghRepo","ghPat","ghSaveBtn","ghSyncNote",
       "backfillBtn","backfillStatus",
-      "breadcrumbRefreshBtn","breadcrumbRefreshStatus",
-      "confirmSheet","confirmText","confirmYes","confirmNo","confirmClose"
+      "breadcrumbRefreshBtn","breadcrumbRefreshStatus"
     ].forEach(function (id) { el[id] = document.getElementById(id); });
   }
 
   var ALL_SHEETS = [
     "settingsHomeSheet","trackedFoldersSheet",
-    "tagsSheet","accountsSheet","confirmSheet"
+    "tagsSheet","accountsSheet"
   ];
   function openSheet(id) {
     el.backdrop.hidden = false;
@@ -1015,10 +999,11 @@
   // Each run reconciles the real OneDrive structure against what's tracked:
   // new top-level folders are tracked and their files captured automatically;
   // a tracked folder whose name changed relabels every note under its old
-  // tag; a tracked folder missing from the real listing pauses for
-  // confirmation before its notes are deleted (the one destructive case);
-  // and a file that moved from one tracked folder to another has its
-  // existing note re-tagged in place rather than being deleted and recreated.
+  // tag; a tracked folder missing from the real listing has its notes
+  // deleted automatically, reported in the post-Sync summary rather than
+  // gated behind a confirmation; and a file that moved from one tracked
+  // folder to another has its existing note re-tagged in place rather than
+  // being deleted and recreated.
   // Runs automatically on app open (silently unless something changed) and
   // on demand via the Sync button.
   // =========================================================================
@@ -1561,39 +1546,18 @@
     });
   }
 
-  // A missing tracked folder is the one destructive case: pauses for
-  // Ron's OK before deleting its notes. If declined, it won't re-prompt on
-  // every subsequent app-open Sync — only once a day at most, so auto-sync
-  // never turns into a recurring interruption.
+  // A missing tracked folder (deleted or moved out of Projects) has its
+  // notes deleted automatically, no confirmation — the removal is just
+  // reported afterward in the post-Sync summary banner.
   function resolveRemovals(missingFolders, acctData, summary) {
-    var toPrompt = missingFolders.filter(function (tf) {
-      if (!tf.lastRemovalPromptAt) return true;
-      var hoursSince = (Date.now() - new Date(tf.lastRemovalPromptAt).getTime()) / 36e5;
-      return hoursSince >= 24;
-    });
-    return toPrompt.reduce(function (chain, tf) {
-      return chain.then(function () { return promptFolderRemoval(tf, acctData, summary); });
-    }, Promise.resolve());
-  }
-
-  function promptFolderRemoval(tf, acctData, summary) {
-    return new Promise(function (resolve) {
-      tf.lastRemovalPromptAt = new Date().toISOString();
+    missingFolders.forEach(function (tf) {
       var noteCount = acctData.notes.filter(function (n) { return n.tag === tf.name; }).length;
-      el.confirmText.textContent = "\"" + tf.name + "\" is missing from OneDrive (deleted or moved out of Projects). Delete its " + noteCount + " note" + (noteCount === 1 ? "" : "s") + " from PaperTrail? Source files aren't affected either way.";
-      pendingConfirm = function () {
-        acctData.trackedFolders = acctData.trackedFolders.filter(function (t) { return t.id !== tf.id; });
-        acctData.notes = acctData.notes.filter(function (n) { return n.tag !== tf.name; });
-        if (searchState.tag === tf.name) searchState.tag = null;
-        summary.removedFolders.push({ name: tf.name, count: noteCount, deleted: true });
-        resolve();
-      };
-      pendingConfirmCancel = function () {
-        summary.removedFolders.push({ name: tf.name, count: noteCount, deleted: false });
-        resolve();
-      };
-      openSheet("confirmSheet");
+      acctData.trackedFolders = acctData.trackedFolders.filter(function (t) { return t.id !== tf.id; });
+      acctData.notes = acctData.notes.filter(function (n) { return n.tag !== tf.name; });
+      if (searchState.tag === tf.name) searchState.tag = null;
+      summary.removedFolders.push({ name: tf.name, count: noteCount, deleted: true });
     });
+    return Promise.resolve();
   }
 
   function buildSyncSummaryText(summary) {
@@ -2477,23 +2441,6 @@
         el.ghSyncNote.textContent = "Synced.";
         render();
       });
-    });
-
-    function cancelConfirm() {
-      var cancelAction = pendingConfirmCancel;
-      closeSheet("confirmSheet");
-      pendingConfirm = null;
-      pendingConfirmCancel = null;
-      if (cancelAction) cancelAction();
-    }
-    el.confirmClose.addEventListener("click", cancelConfirm);
-    el.confirmNo.addEventListener("click", cancelConfirm);
-    el.confirmYes.addEventListener("click", function () {
-      var action = pendingConfirm;
-      closeSheet("confirmSheet");
-      pendingConfirm = null;
-      pendingConfirmCancel = null;
-      if (action) action();
     });
 
     el.backdrop.addEventListener("click", closeAllSheets);
