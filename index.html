@@ -356,6 +356,11 @@
       <div class="settings-note" id="backfillStatus">One-time pass to fill in the Modified date on notes captured before this feature shipped.</div>
       <div class="btn-row"><button class="btn-secondary" id="backfillBtn">Run backfill</button></div>
     </div>
+    <div style="padding-top:14px;">
+      <div style="font-size:15px; font-weight:500; color:var(--text);">Refresh Folder Breadcrumbs</div>
+      <div class="settings-note" id="breadcrumbRefreshStatus">One-time pass to fix any note's displayed folder location left stale by a subfolder rename from before Sync started catching these automatically.</div>
+      <div class="btn-row"><button class="btn-secondary" id="breadcrumbRefreshBtn">Run refresh</button></div>
+    </div>
   </div>
 </div>
 
@@ -565,6 +570,7 @@
       "accountsSheet","accountsBack","azureClientId","accountsList","accountsAddBtn",
       "ghOwner","ghRepo","ghPat","ghSaveBtn","ghSyncNote",
       "backfillBtn","backfillStatus",
+      "breadcrumbRefreshBtn","breadcrumbRefreshStatus",
       "confirmSheet","confirmText","confirmYes","confirmNo","confirmClose"
     ].forEach(function (id) { el[id] = document.getElementById(id); });
   }
@@ -921,6 +927,20 @@
     return rest.replace(/^\//, "").split("/").join(" / ");
   }
 
+  // Renames one " / "-delimited segment of a folder-location breadcrumb in
+  // place — used when a subfolder's own rename is detected via delta (see
+  // performSync), so a note nested underneath it gets its displayed
+  // location corrected without a live Graph round-trip per note.
+  function relabelBreadcrumbSegment(folderPath, oldName, newName) {
+    if (!folderPath) return folderPath;
+    var segments = folderPath.split(" / ");
+    var changed = false;
+    for (var i = 0; i < segments.length; i++) {
+      if (segments[i] === oldName) { segments[i] = newName; changed = true; }
+    }
+    return changed ? segments.join(" / ") : folderPath;
+  }
+
   // Builds a real Windows path from a folder-location breadcrumb string
   // plus the active account's local OneDrive sync root — safe to split on
   // " / " since folder names never contain a literal slash. Returns null
@@ -934,16 +954,13 @@
 
   // Resolves a note's CURRENT real folder location live via Graph (by its
   // stable drive-item id) rather than trusting the cached folderPath
-  // breadcrumb, which can go stale: Sync only detects renames on the
-  // top-level tag folders themselves, and its delta processing skips
-  // folder-type change events entirely, so a subfolder renamed anywhere
-  // underneath a tracked folder never propagates into existing notes'
-  // breadcrumbs (confirmed live, 2026-07-27 — a folder several levels deep
-  // under 907 Cornerstone had its name changed and over a thousand notes
-  // never picked it up). Open and File Location both depend on this for
-  // correctness, since a stale local path just fails outright rather than
-  // opening — the live preview panel doesn't have this problem because it
-  // resolves everything by drive-item id via Graph, never a cached path.
+  // breadcrumb. Kept even after performSync started relabeling subfolder
+  // renames (2026-07-29, see relabelBreadcrumbSegment): Open and File
+  // Location still resolve live rather than trusting the cache, since a
+  // stale local path just fails outright rather than opening, and a note
+  // whose folder moved since its last Sync would otherwise still be wrong
+  // between syncs either way — the live preview panel never had this
+  // problem, since it always resolves by drive-item id via Graph.
   function resolveLiveLocalPath(note, acctCfg, token) {
     var metaUrl = acctCfg.driveBaseUrl + "/items/" + note.driveItemId + "?$select=parentReference";
     return graphFetch(metaUrl, token).then(function (meta) {
@@ -1064,7 +1081,7 @@
   function performSync(acctCfg, token) {
     var acctData = activeAccountData();
     var driveBaseUrl = acctCfg.driveBaseUrl;
-    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, renamedFileCount: 0, failedFolders: [] };
+    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, renamedFileCount: 0, relabeledSubfolders: [], failedFolders: [] };
 
     return listChildrenByPath(driveBaseUrl, acctCfg.tagRootPath, token).then(function (rootChildren) {
       var realFolders = rootChildren.filter(function (c) { return c.folder; });
@@ -1155,9 +1172,33 @@
           var createdItems = {};
 
           perFolderDeltaItems.forEach(function (rec) {
+            var tf = rec.tf;
+            tf.subfolderNames = tf.subfolderNames || {};
             rec.items.forEach(function (item) {
+              // A folder-type delta item is a subfolder somewhere under this
+              // tracked top-level folder — its own rename (not the file
+              // moves inside it, which arrive as separate delta items) never
+              // produces a note by itself, but it's the only signal that a
+              // note's cached folderPath breadcrumb needs relabeling too, so
+              // it's tracked here rather than discarded like before.
+              if (item.folder) {
+                if (item.deleted) { delete tf.subfolderNames[item.id]; return; }
+                var prevSubfolderName = tf.subfolderNames[item.id];
+                tf.subfolderNames[item.id] = item.name;
+                if (prevSubfolderName && prevSubfolderName !== item.name) {
+                  var relabeledBreadcrumbs = 0;
+                  acctData.notes.forEach(function (n) {
+                    if (n.tag !== tf.name) return;
+                    var updatedBreadcrumb = relabelBreadcrumbSegment(n.folderPath, prevSubfolderName, item.name);
+                    if (updatedBreadcrumb !== n.folderPath) { n.folderPath = updatedBreadcrumb; relabeledBreadcrumbs++; }
+                  });
+                  if (relabeledBreadcrumbs) {
+                    summary.relabeledSubfolders.push({ oldName: prevSubfolderName, newName: item.name, count: relabeledBreadcrumbs });
+                  }
+                }
+                return;
+              }
               if (item.deleted) { deletedIds[item.id] = true; return; }
-              if (item.folder) return;
               createdItems[item.id] = { item: item, tagName: rec.tf.name };
             });
           });
@@ -1377,6 +1418,132 @@
     });
   }
 
+  // =========================================================================
+  // Refresh Folder Breadcrumbs — one-time pass for notes whose displayed
+  // folder location went stale from a subfolder rename that happened before
+  // performSync started relabeling these automatically (2026-07-29, see
+  // relabelBreadcrumbSegment). That fix only catches a rename from the next
+  // Sync onward; this backfill re-fetches every note's live parentReference
+  // once via the same $batch pattern as Backfill Modified Dates above, so
+  // breadcrumbs that already went stale (confirmed live under 907
+  // Cornerstone, over a thousand notes) get corrected in one pass too.
+  // =========================================================================
+  var breadcrumbRefreshInProgress = false;
+
+  function renderBreadcrumbRefreshStatus() {
+    if (!el.breadcrumbRefreshStatus) return;
+    var acctData = activeAccountData();
+    if (breadcrumbRefreshInProgress) return; // runBreadcrumbRefresh owns the status text while running
+    if (!acctData || acctData.notes.length === 0) {
+      el.breadcrumbRefreshStatus.textContent = "No notes yet — run Sync first.";
+      el.breadcrumbRefreshBtn.disabled = true;
+    } else {
+      el.breadcrumbRefreshStatus.textContent = "One-time pass to fix any note's displayed folder location left stale by a subfolder rename from before Sync started catching these automatically.";
+      el.breadcrumbRefreshBtn.disabled = false;
+    }
+  }
+
+  // One $batch call for up to 20 notes; updates folderPath in place on
+  // whichever ones come back with a different current location than what
+  // was cached. Returns changedCount separately from failedCount, since most
+  // notes are expected to already be correct and shouldn't count as errors.
+  function runBreadcrumbRefreshBatchOnce(notesBatch, token, acctCfg) {
+    var requests = notesBatch.map(function (n, i) {
+      return { id: String(i), url: relativeDriveUrl(acctCfg.driveBaseUrl, "/items/" + n.driveItemId + "?$select=parentReference") };
+    });
+    return graphBatch(requests, token).then(function (result) {
+      var changedCount = 0;
+      var failedCount = 0;
+      var throttled = [];
+      (result.responses || []).forEach(function (r) {
+        var note = notesBatch[Number(r.id)];
+        if (!note) return;
+        if (r.status === 200 && r.body) {
+          var fresh = folderBreadcrumb(r.body.parentReference ? r.body.parentReference.path : "", acctCfg.tagRootPath);
+          if (fresh !== note.folderPath) { note.folderPath = fresh; changedCount++; }
+        } else if (r.status === 404) {
+          // Source file is gone — leave it for Sync's own delete-detection
+          // to clean up on the next normal Sync run, not this pass's job.
+        } else if (r.status === 429) {
+          throttled.push(note);
+        } else {
+          failedCount++;
+        }
+      });
+      return { changedCount: changedCount, failedCount: failedCount, throttled: throttled };
+    });
+  }
+
+  // Same retry-with-backoff shape as runBackfillBatchWithRetry above, just
+  // threading a changedCount through alongside failedCount.
+  function runBreadcrumbRefreshBatchWithRetry(notesBatch, token, acctCfg, attempt) {
+    attempt = attempt || 1;
+    return runBreadcrumbRefreshBatchOnce(notesBatch, token, acctCfg).then(function (result) {
+      if (result.throttled.length === 0) return { changedCount: result.changedCount, failedCount: result.failedCount };
+      if (attempt >= 5) return { changedCount: result.changedCount, failedCount: result.failedCount + result.throttled.length };
+      return delay(backoffMs(attempt)).then(function () {
+        return runBreadcrumbRefreshBatchWithRetry(result.throttled, token, acctCfg, attempt + 1).then(function (rest) {
+          return { changedCount: result.changedCount + rest.changedCount, failedCount: result.failedCount + rest.failedCount };
+        });
+      });
+    }).catch(function (err) {
+      if (err && err.throttled && attempt < 5) {
+        return delay(err.retryAfterMs || backoffMs(attempt)).then(function () {
+          return runBreadcrumbRefreshBatchWithRetry(notesBatch, token, acctCfg, attempt + 1);
+        });
+      }
+      return { changedCount: 0, failedCount: notesBatch.length };
+    });
+  }
+
+  function runBreadcrumbRefresh() {
+    if (breadcrumbRefreshInProgress) return;
+    var acctCfg = activeAccountConfig();
+    var acctData = activeAccountData();
+    if (!acctCfg || !acctData || acctData.notes.length === 0) { renderBreadcrumbRefreshStatus(); return; }
+
+    breadcrumbRefreshInProgress = true;
+    el.breadcrumbRefreshBtn.disabled = true;
+    var targets = acctData.notes.slice();
+    var total = targets.length;
+    var done = 0;
+    var changed = 0;
+    var failed = 0;
+    el.breadcrumbRefreshStatus.textContent = "Refreshing... 0/" + total;
+
+    getTokenForActiveAccount({ silentOnly: false }).then(function (token) {
+      var batches = chunkArray(targets, 20);
+      var batchIndex = 0;
+      return batches.reduce(function (p, batch) {
+        return p.then(function () {
+          return runBreadcrumbRefreshBatchWithRetry(batch, token, acctCfg).then(function (result) {
+            done += batch.length;
+            changed += result.changedCount;
+            failed += result.failedCount;
+            batchIndex++;
+            el.breadcrumbRefreshStatus.textContent = "Refreshing... " + done + "/" + total + (failed ? (" (" + failed + " failed)") : "");
+            saveLocalData();
+            if (batchIndex % 10 === 0) persistAndSync();
+            return delay(300);
+          });
+        });
+      }, Promise.resolve());
+    }).then(function () {
+      persistAndSync();
+      render();
+      breadcrumbRefreshInProgress = false;
+      renderBreadcrumbRefreshStatus();
+      if (failed) showGlobalStatus(failed + " of " + total + " notes couldn't be checked — run again to retry.", "error");
+      else showGlobalStatus("Checked " + total + " notes — " + changed + " folder-location breadcrumb" + (changed === 1 ? "" : "s") + " fixed.", "success");
+    }).catch(function (err) {
+      persistAndSync();
+      render();
+      breadcrumbRefreshInProgress = false;
+      renderBreadcrumbRefreshStatus();
+      showGlobalStatus("Refresh stopped: " + (err && err.message ? err.message : err) + " — notes already checked were saved, run again to continue.", "error");
+    });
+  }
+
   // A missing tracked folder is the one destructive case: pauses for
   // Ron's OK before deleting its notes. If declined, it won't re-prompt on
   // every subsequent app-open Sync — only once a day at most, so auto-sync
@@ -1426,6 +1593,9 @@
     if (summary.renamedFileCount) {
       parts.push(summary.renamedFileCount + " file" + (summary.renamedFileCount === 1 ? "" : "s") + " renamed");
     }
+    if (summary.relabeledSubfolders.length) {
+      parts.push(summary.relabeledSubfolders.map(function (r) { return r.oldName + " renamed to " + r.newName + " (" + r.count + " note" + (r.count === 1 ? "" : "s") + " breadcrumb" + (r.count === 1 ? "" : "s") + " updated)"; }).join(", "));
+    }
     if (summary.newFileCount) {
       parts.push(summary.newFileCount + " new file" + (summary.newFileCount === 1 ? "" : "s") + " found");
     }
@@ -1446,6 +1616,7 @@
   function summaryHasChanges(summary) {
     return summary.newFolders.length > 0 || summary.renamedFolders.length > 0 ||
       summary.movedFileCount > 0 || summary.renamedFileCount > 0 || summary.newFileCount > 0 || summary.deletedFileCount > 0 ||
+      summary.relabeledSubfolders.length > 0 ||
       summary.removedFolders.some(function (r) { return r.deleted; }) || summary.failedFolders.length > 0;
   }
 
@@ -2261,8 +2432,9 @@
 
     el.syncBtn.addEventListener("click", function () { runSync(); });
 
-    el.manageBtn.addEventListener("click", function () { renderBackfillStatus(); openSheet("settingsHomeSheet"); });
+    el.manageBtn.addEventListener("click", function () { renderBackfillStatus(); renderBreadcrumbRefreshStatus(); openSheet("settingsHomeSheet"); });
     el.backfillBtn.addEventListener("click", runBackfill);
+    el.breadcrumbRefreshBtn.addEventListener("click", runBreadcrumbRefresh);
     el.settingsHomeClose.addEventListener("click", function () { closeSheet("settingsHomeSheet"); });
     Array.prototype.forEach.call(document.querySelectorAll("#settingsHomeSheet .settings-row"), function (row) {
       row.addEventListener("click", function () {
