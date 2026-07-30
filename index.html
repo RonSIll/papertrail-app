@@ -60,22 +60,35 @@
     background: #3a3a3d;
     border-bottom: 1px solid rgba(255,255,255,0.14);
   }
-  /* One single row, Ron's request 2026-07-30 (superseding the earlier
-     two-row topbar-left/topbar-right split): search box, sort control,
-     and Sync/Manage all sit side by side on one line. The account
-     switcher itself moved out of the topbar entirely and into the top
-     of the tag sidebar instead (see .sidebar-account-row below) — Ron's
-     direct correction the same session, after an initial attempt kept
-     it in the topbar. The search box is the only flex-growing child
-     here, so it fills whatever width sort control/Sync/Manage (both
-     natural/content-sized) don't need. */
-  /* overflow-x: auto — safety net for a narrow window where the two
-     non-shrinking children plus the search box's 180px floor exceed the
-     row's available width: the row scrolls horizontally instead of
-     breaking the page's own layout. */
-  .topbar-row { display: flex; align-items: center; gap: 16px; padding: 0 16px; overflow-x: auto; }
-  .sort-control, .topbar-actions { flex: 0 0 auto; }
-  .topbar-actions { display: flex; align-items: center; gap: 6px; }
+  /* Structural match, not a tuned percentage: .topbar-left/.topbar-right
+     use the exact same flex: 1 1 0 split as .content/.content-right below
+     (down to the 1px border .content-right carries, mirrored here as a
+     transparent border so both rows consume identical width), so the
+     search input — full-width inside .topbar-left's own 16px side padding,
+     same padding .content itself uses — always renders at exactly the note
+     card width, at any window size, rather than one calc() tuned to a
+     single tested width. */
+  /* align-items: flex-start (not the original flex-end) — Ron's request
+     2026-07-30: .topbar-right's single row (sort control + Sync/Manage)
+     now lines up with .topbar-left's TOP row (the account switcher)
+     instead of its bottom row (the search box), so the account dropdown
+     and the sort control read as one shared top strip, with the search
+     box sitting in the now-mostly-empty space directly beneath both. */
+  .topbar-columns { display: flex; align-items: flex-start; }
+  .topbar-left { flex: 1 1 0; min-width: 0; padding: 0 16px; }
+  .topbar-right {
+    flex: 1 1 0; min-width: 0; padding: 0 16px; border-left: 1px solid transparent;
+    display: flex; align-items: center; gap: 6px;
+  }
+  /* Wraps Last synced/Sync/Manage and pushes just that group to the far
+     right via the auto margin, leaving .sort-control anchored at the start
+     of .topbar-right — i.e. directly above the search box in .topbar-left,
+     not dragged along with the rest of the group. */
+  .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  /* margin-bottom shrunk from 10px to 2px, Ron's request 2026-07-30 — the
+     account row and the search box now read as a tightly-packed pair
+     rather than two separately-spaced rows. */
+  .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
   /* Matches the topbar's own hardcoded dark gray (#3a3a3d, same as
      .tag-sidebar/.icon-btn-top) rather than the light/dark theme vars —
      the account switcher lives in the dark topbar chrome, not the
@@ -90,7 +103,7 @@
      and a separate, purely visual label span sits on top showing the
      active account's name plus a small arrow immediately after it — see
      #accountSelectLabel, kept in sync in renderAccountSelect(). */
-  .account-select-wrap { position: relative; }
+  .account-select-wrap { position: relative; flex: 1; min-width: 0; }
   .account-select {
     position: absolute; inset: 0; width: 100%; height: 100%;
     opacity: 0; cursor: pointer; padding: 8px 10px; font-size: 13px;
@@ -101,7 +114,7 @@
     background: #3a3a3d; white-space: nowrap;
   }
   .account-select-label::after { content: "\25BE"; font-size: 16px; }
-  .topbar-row input[type="text"] {
+  .topbar-left input[type="text"] {
     width: 100%; border: 1px solid var(--border); background: var(--bg2);
     color: var(--text); padding: 9px 32px 9px 14px; font-size: 14px; outline: none;
     /* Fully rounded "pill" shape, per Ron's request 2026-07-30 — 999px
@@ -110,15 +123,7 @@
        changes by hand. */
     border-radius: 999px;
   }
-  /* flex: 1 1 auto — the only growing child of .topbar-row, so it
-     absorbs whatever width the account switcher/sort control/Sync/
-     Manage (all natural-width, flex-shrink:0) don't need. min-width
-     guards against the real case where those three combined leave very
-     little room: on a narrower window the search box stays at least
-     180px instead of collapsing toward unusable, and the row overflows
-     instead — a live-measured tradeoff of the one-row design, not an
-     oversight. */
-  .search-box-wrap { position: relative; flex: 1 1 auto; min-width: 180px; }
+  .search-box-wrap { position: relative; }
   .search-clear-btn {
     position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
     background: none; border: none; color: var(--text3); font-size: 14px;
@@ -172,24 +177,22 @@
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
     background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
   }
-  /* Account switcher, at the very top of the sidebar, above "Note Tags"
-     — Ron's explicit correction 2026-07-30: it belongs in the left
-     panel itself, not the topbar. flex: 0 0 auto — its height comes
-     from .account-select-label's own content, not a hardcoded value. */
-  .sidebar-account-row { flex: 0 0 auto; padding: 10px 18px 6px; }
   .sidebar-section-title {
     display: flex; align-items: flex-end; padding: 0 18px 6px;
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     color: #8a8a90;
   }
-  /* Natural content height (was hand-tuned to 56.2px to pixel-match the
-     notes window's top edge, before the account switcher moved into
-     .sidebar-account-row above). That exact alignment is no longer
-     maintained: matching it now would mean either hiding this label
-     almost entirely or inflating the topbar's own height, both worse
-     than just letting the two panels' top sections differ slightly —
-     Ron's explicit call, 2026-07-30. */
-  .tag-sidebar-header { flex: 0 0 auto; padding-top: 10px; }
+  /* 94.6px (not the original 54px) so the scrollable tag list below it
+     starts at exactly the same vertical position as the notes window's
+     own top edge — measured live against the topbar's actual rendered
+     height (95.6px, after the account-row margin-bottom shrink from
+     10px to 2px) minus the 1px divider between this header and the tag
+     list. Ron's explicit request 2026-07-30; the scrollable list itself
+     is correspondingly shorter by the same amount, since the sidebar's
+     total height is fixed to the window. Re-derive this value again if
+     the topbar's own height ever changes for any reason — it's tuned to
+     a live measurement, not computed from the topbar's own CSS. */
+  .tag-sidebar-header { flex: 0 0 94.6px; }
   .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
     flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 4px;
@@ -345,12 +348,6 @@
 <body>
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
-    <div class="sidebar-account-row" id="accountRow">
-      <div class="account-select-wrap">
-        <select class="account-select" id="accountSelect"></select>
-        <span class="account-select-label" id="accountSelectLabel"></span>
-      </div>
-    </div>
     <div class="tag-sidebar-header sidebar-section-title">Note Tags</div>
     <div class="sidebar-divider"></div>
     <div class="tag-list-scroll" id="tagList"></div>
@@ -363,25 +360,35 @@
   </nav>
   <div class="main-column">
     <div class="topbar">
-      <div class="topbar-row">
-        <div class="search-box-wrap">
-          <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-          <button class="search-clear-btn" id="searchClearBtn" title="Clear search" tabindex="-1" hidden>&#10005;</button>
+      <div class="topbar-columns">
+        <div class="topbar-left">
+          <div class="account-row" id="accountRow">
+            <div class="account-select-wrap">
+              <select class="account-select" id="accountSelect"></select>
+              <span class="account-select-label" id="accountSelectLabel"></span>
+            </div>
+          </div>
+          <div class="search-box-wrap">
+            <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+            <button class="search-clear-btn" id="searchClearBtn" title="Clear search" tabindex="-1" hidden>&#10005;</button>
+          </div>
         </div>
-        <div class="sort-control">
-          <button class="sort-arrow-btn" id="sortArrowBtn" title="Reverse sort direction">&#9650;</button>
-          <button class="sort-cycle-btn" id="sortCycleBtn">Sort by: <span class="sort-word" data-mode="name">name</span> <span class="sort-word" data-mode="modified">modified</span> <span class="sort-word" data-mode="added">added</span></button>
-        </div>
-        <div class="topbar-actions">
-          <span class="last-synced" id="lastSyncedLabel"></span>
-          <button class="icon-btn-top" id="syncBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            Sync
-          </button>
-          <button class="icon-btn-top" id="manageBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Manage
-          </button>
+        <div class="topbar-right">
+          <div class="sort-control">
+            <button class="sort-arrow-btn" id="sortArrowBtn" title="Reverse sort direction">&#9650;</button>
+            <button class="sort-cycle-btn" id="sortCycleBtn">Sort by: <span class="sort-word" data-mode="name">name</span> <span class="sort-word" data-mode="modified">modified</span> <span class="sort-word" data-mode="added">added</span></button>
+          </div>
+          <div class="topbar-actions">
+            <span class="last-synced" id="lastSyncedLabel"></span>
+            <button class="icon-btn-top" id="syncBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Sync
+            </button>
+            <button class="icon-btn-top" id="manageBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Manage
+            </button>
+          </div>
         </div>
       </div>
     </div>
