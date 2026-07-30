@@ -169,17 +169,17 @@
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     color: #8a8a90;
   }
-  /* 94.6px (not the original 54px) so the scrollable tag list below it
+  /* 56.2px (not the original 54px) so the scrollable tag list below it
      starts at exactly the same vertical position as the notes window's
      own top edge — measured live against the topbar's actual rendered
-     height (95.6px, after the account-row margin-bottom shrink from
-     10px to 2px) minus the 1px divider between this header and the tag
-     list. Ron's explicit request 2026-07-30; the scrollable list itself
-     is correspondingly shorter by the same amount, since the sidebar's
-     total height is fixed to the window. Re-derive this value again if
-     the topbar's own height ever changes for any reason — it's tuned to
-     a live measurement, not computed from the topbar's own CSS. */
-  .tag-sidebar-header { flex: 0 0 94.6px; }
+     height (57.2px, after collapsing the topbar to one row) minus the
+     1px divider between this header and the tag list. Ron's explicit
+     request 2026-07-30; the scrollable list itself is correspondingly
+     shorter by the same amount, since the sidebar's total height is
+     fixed to the window. Re-derive this value again if the topbar's
+     own height ever changes for any reason — it's tuned to a live
+     measurement, not computed from the topbar's own CSS. */
+  .tag-sidebar-header { flex: 0 0 56.2px; }
   .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
     flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 4px;
