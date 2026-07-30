@@ -435,13 +435,17 @@
   // account and the separate KellyVend business tenant — no second app
   // registration needed unless that tenant's admin blocks external apps,
   // in which case a per-account override could be added to
-  // LOCAL_CONFIG.accounts later. Files.Read (delegated) already covers
-  // files the signed-in user has direct access to across both personal
-  // OneDrive and any SharePoint site drive, not just /me/drive, so no
-  // broader Sites.Read.All scope is requested up front — add it here (and
-  // expect a fresh consent prompt on next sign-in) only if KellyVend's
-  // first real sign-in actually comes back with a permissions error.
-  var GRAPH_SCOPES = ["Files.Read"];
+  // LOCAL_CONFIG.accounts later. Sites.Read.All is required alongside
+  // Files.Read for the site-path drive resolution KellyVend's account
+  // needs (GET /sites/{hostname}:/{path}:/drive) — confirmed live
+  // 2026-07-30: Files.Read alone came back 403 on that specific call, so
+  // plain OneDrive file access and site-drive resolution are gated by
+  // different delegated permissions, not the same one as originally
+  // assumed. Adding a scope here means every account's token (Personal
+  // included) is requested with this combined scope set going forward, so
+  // expect one more interactive consent prompt for Personal too, next time
+  // it can't silently reuse an old Files.Read-only token.
+  var GRAPH_SCOPES = ["Files.Read", "Sites.Read.All"];
   var LOCAL_CONFIG_KEY = "paperTrailLocalConfig"; // azureClientId, gh{owner,repo,pat,sha}, accounts[], activeAccountKey
   var DATA_KEY = "paperTrailData"; // local cache of the synced JSON
   var DATA_PATH = "data.json";
