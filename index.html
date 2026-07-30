@@ -199,6 +199,24 @@
   .preview-site-slot { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
   .preview-favicon { width: 32px; height: 32px; flex: 0 0 auto; }
   .preview-site-host { font-size: 13px; color: var(--text2); margin-bottom: 4px; word-break: break-all; }
+  /* Folder-note preview: an immediate-children listing, sub-folders first. */
+  .folder-contents-caption { font-size: 13px; color: var(--text3); margin-bottom: 8px; }
+  .folder-contents-list { max-height: 60vh; overflow-y: auto; }
+  .folder-contents-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 0.5px solid var(--border); }
+  .folder-contents-row:last-child { border-bottom: none; }
+  .folder-contents-kind {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--text3); background: rgba(128,128,128,0.16); padding: 2px 6px; flex: 0 0 auto;
+  }
+  .folder-contents-name { font-size: 13px; color: var(--text); word-break: break-word; min-width: 0; }
+  /* Muted "Folder" chip, distinguishing a folder-note at a glance in both
+     the note-list row and the preview header — same pill shape as
+     .note-tag/.note-link-pill, gray rather than green/blue since it's a
+     type marker, not a tag or an action. */
+  .note-type-chip {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--text3); background: rgba(128,128,128,0.16); padding: 2px 7px;
+  }
   .note-row {
     position: relative; overflow: hidden; margin-bottom: 6px;
   }
@@ -361,6 +379,11 @@
       <div class="settings-note" id="breadcrumbRefreshStatus">One-time pass to fix any note's displayed folder location left stale by a subfolder rename from before Sync started catching these automatically.</div>
       <div class="btn-row"><button class="btn-secondary" id="breadcrumbRefreshBtn">Run refresh</button></div>
     </div>
+    <div style="padding-top:14px;">
+      <div style="font-size:15px; font-weight:500; color:var(--text);">Backfill Folders</div>
+      <div class="settings-note" id="backfillFoldersStatus">One-time pass to create a folder-note for every existing sub-folder.</div>
+      <div class="btn-row"><button class="btn-secondary" id="backfillFoldersBtn">Run backfill</button></div>
+    </div>
   </div>
 </div>
 
@@ -453,7 +476,10 @@
   //                  under the tag root) — there is no opt-in add/remove
   //                  step, and no subfolder-as-tag exception; a note's tag
   //                  is always its nearest top-level ancestor folder.
-  // note: { id, filename, tag, webUrl, folderPath, driveItemId, capturedAt, modifiedAt }
+  // note: { id, filename, tag, webUrl, folderPath, driveItemId, capturedAt,
+  //         modifiedAt, type }. type is "file" or "folder" — added
+  //         2026-07-30 for folder-notes; absent on any note created before
+  //         that means "file", no migration needed.
   var data = {};
 
   var msalApp = null;
@@ -504,15 +530,18 @@
     return words.every(function (w) { return lower.indexOf(w) !== -1; });
   }
 
-  // File-type filter: five categories, no catch-all — a file whose
-  // extension matches none of these just isn't reachable through the type
-  // filter, though it stays visible under an unfiltered view. Matched
-  // case-insensitively since real OneDrive files carry mixed-case
-  // extensions (.JPG, .PDF). A .lnk is included under Links unconditionally:
-  // performSync's Phase B already discards any .lnk that doesn't resolve to
-  // a real URL before it ever becomes a note, so any .lnk note that exists
-  // in data is already known to be a link.
-  var FILE_TYPE_CATEGORIES = ["Documents", "Images", "Notes", "Links", "Media"];
+  // File-type filter: six categories (five by extension, plus Folders),
+  // alphabetical — a file whose extension matches none of these just isn't
+  // reachable through the type filter, though it stays visible under an
+  // unfiltered view. Matched case-insensitively since real OneDrive files
+  // carry mixed-case extensions (.JPG, .PDF). A .lnk is included under Links
+  // unconditionally: performSync's Phase B already discards any .lnk that
+  // doesn't resolve to a real URL before it ever becomes a note, so any
+  // .lnk note that exists in data is already known to be a link. Folders
+  // (added 2026-07-30) are never extension-matched at all — noteFileType
+  // checks note.type first, so a folder literally named "report.pdf" is
+  // still counted as a Folder, never a Document.
+  var FILE_TYPE_CATEGORIES = ["Documents", "Folders", "Images", "Links", "Media", "Notes"];
   var FILE_TYPE_EXTENSIONS = {
     Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"],
     Images: ["jpg", "jpeg", "png", "heic", "gif"],
@@ -525,6 +554,7 @@
     FILE_TYPE_EXTENSIONS[type].forEach(function (ext) { EXT_TO_FILE_TYPE[ext] = type; });
   });
   function noteFileType(note) {
+    if (note.type === "folder") return "Folders";
     var m = /\.([a-z0-9]+)$/i.exec(note.filename);
     return m ? (EXT_TO_FILE_TYPE[m[1].toLowerCase()] || null) : null;
   }
@@ -555,7 +585,8 @@
       "accountsSheet","accountsBack","azureClientId","accountsList","accountsAddBtn",
       "ghOwner","ghRepo","ghPat","ghSaveBtn","ghSyncNote",
       "backfillBtn","backfillStatus",
-      "breadcrumbRefreshBtn","breadcrumbRefreshStatus"
+      "breadcrumbRefreshBtn","breadcrumbRefreshStatus",
+      "backfillFoldersBtn","backfillFoldersStatus"
     ].forEach(function (id) { el[id] = document.getElementById(id); });
   }
 
@@ -886,6 +917,25 @@
     });
   }
 
+  // Folder-note analogue of walkFolderRecursive above: returns every
+  // SUB-folder (not file) found at any depth under a folder, instead of
+  // discarding them. Used two places: seeding folder-notes (plus their
+  // rename-tracking baseline) the moment a brand-new top-level folder is
+  // first captured, and the one-time Backfill Folders pass that catches
+  // sub-folders that already existed under an ALREADY-tracked folder before
+  // this feature shipped (see runBackfillFolders).
+  function walkFolderRecursiveFolders(driveBaseUrl, folderId, token) {
+    return listChildrenById(driveBaseUrl, folderId, token).then(function (children) {
+      var subfolders = children.filter(function (c) { return c.folder; });
+      if (subfolders.length === 0) return subfolders;
+      return Promise.all(subfolders.map(function (sf) {
+        return walkFolderRecursiveFolders(driveBaseUrl, sf.id, token);
+      })).then(function (nested) {
+        return nested.reduce(function (acc, arr) { return acc.concat(arr); }, subfolders.slice());
+      });
+    });
+  }
+
   function deltaQuery(driveBaseUrl, folderId, token, deltaLink) {
     var url = deltaLink || (driveBaseUrl + "/items/" + folderId + "/delta");
     return graphFetch(url, token).then(function (page) { return collectDeltaPages(token, page, []); });
@@ -994,6 +1044,26 @@
     });
   }
 
+  // Open pill / Enter-key shortcut for a folder-note: same live-resolve
+  // pattern as openLocalFileLive just above, but hands the folder's OWN
+  // full path to the "papertrail-explorer:" protocol (which opens a
+  // folder) rather than "papertrail-openfile:" (which launches a path with
+  // its default app — wrong for a directory). resolveLiveLocalPath already
+  // resolves off the note's own driveItemId, which for a folder-note is the
+  // folder itself, so folderPath here is the folder's PARENT, same as for a
+  // file — joining it with the folder's own filename gives the folder's
+  // full path. Falls back to the folder's OneDrive web view on failure.
+  function openLocalFolderLive(note, acctCfg) {
+    getTokenForActiveAccount().then(function (token) {
+      return resolveLiveLocalPath(note, acctCfg, token);
+    }).then(function (folderPath) {
+      if (!folderPath) { window.open(note.webUrl, "_blank", "noopener"); return; }
+      window.location.href = "papertrail-explorer:" + encodeURIComponent(folderPath + "\\" + note.filename);
+    }).catch(function () {
+      window.open(note.webUrl, "_blank", "noopener");
+    });
+  }
+
   // =========================================================================
   // Sync — the only way files enter PaperTrail now (capture/Add is gone).
   // Each run reconciles the real OneDrive structure against what's tracked:
@@ -1016,7 +1086,8 @@
       folderPath: folderBreadcrumb(item.parentReference ? item.parentReference.path : "", acctCfg.tagRootPath),
       driveItemId: item.id,
       capturedAt: new Date().toISOString(),
-      modifiedAt: item.lastModifiedDateTime || null
+      modifiedAt: item.lastModifiedDateTime || null,
+      type: item.folder ? "folder" : "file"
     };
   }
 
@@ -1137,11 +1208,26 @@
 
         newFolders.forEach(function (f) {
           gatherWork.push(
-            walkFolderRecursive(driveBaseUrl, f.id, token).then(function (files) {
+            Promise.all([
+              walkFolderRecursive(driveBaseUrl, f.id, token),
+              walkFolderRecursiveFolders(driveBaseUrl, f.id, token)
+            ]).then(function (results) {
+              var files = results[0], subfolders = results[1];
               return deltaQuery(driveBaseUrl, f.id, token, null).then(function (deltaResult) {
-                var tf = { id: f.id, name: f.name, path: f.parentReference.path + "/" + f.name, deltaLink: deltaResult.deltaLink };
+                var tf = { id: f.id, name: f.name, path: f.parentReference.path + "/" + f.name, deltaLink: deltaResult.deltaLink, subfolderNames: {} };
+                // Seed the rename-tracking baseline from this same walk, so
+                // a future rename of one of these pre-existing sub-folders
+                // is recognized as a rename (prevSubfolderName present)
+                // instead of looking like a first-ever, nothing-to-compare
+                // sighting — the same narrow gap already known from the
+                // 2026-07-29 breadcrumb-refresh work, closed here for any
+                // top-level folder captured going forward.
+                subfolders.forEach(function (sf) { tf.subfolderNames[sf.id] = sf.name; });
                 acctData.trackedFolders.push(tf);
-                newFolderRecords.push({ tf: tf, files: files });
+                // Sub-folders become folder-notes exactly like files become
+                // file-notes below — makeNote stamps type from the item's
+                // own folder facet, so no separate handling is needed here.
+                newFolderRecords.push({ tf: tf, files: files.concat(subfolders) });
               });
             }).catch(function () { summary.failedFolders.push(f.name); })
           );
@@ -1161,27 +1247,33 @@
             tf.subfolderNames = tf.subfolderNames || {};
             rec.items.forEach(function (item) {
               // A folder-type delta item is a subfolder somewhere under this
-              // tracked top-level folder — its own rename (not the file
-              // moves inside it, which arrive as separate delta items) never
-              // produces a note by itself, but it's the only signal that a
-              // note's cached folderPath breadcrumb needs relabeling too, so
-              // it's tracked here rather than discarded like before.
+              // tracked top-level folder. Its own rename (not the file
+              // moves inside it, which arrive as separate delta items) is
+              // the signal that every note's cached folderPath breadcrumb
+              // beneath it needs relabeling too, handled here exactly as
+              // before. As of 2026-07-30, a subfolder ALSO becomes a
+              // folder-note in its own right (a searchable, previewable
+              // note type), so — after this rename bookkeeping — it falls
+              // through into the exact same createdItems/deletedIds
+              // handling files use just below, rather than being discarded.
               if (item.folder) {
-                if (item.deleted) { delete tf.subfolderNames[item.id]; return; }
-                var prevSubfolderName = tf.subfolderNames[item.id];
-                tf.subfolderNames[item.id] = item.name;
-                if (prevSubfolderName && prevSubfolderName !== item.name) {
-                  var relabeledBreadcrumbs = 0;
-                  acctData.notes.forEach(function (n) {
-                    if (n.tag !== tf.name) return;
-                    var updatedBreadcrumb = relabelBreadcrumbSegment(n.folderPath, prevSubfolderName, item.name);
-                    if (updatedBreadcrumb !== n.folderPath) { n.folderPath = updatedBreadcrumb; relabeledBreadcrumbs++; }
-                  });
-                  if (relabeledBreadcrumbs) {
-                    summary.relabeledSubfolders.push({ oldName: prevSubfolderName, newName: item.name, count: relabeledBreadcrumbs });
+                if (item.deleted) {
+                  delete tf.subfolderNames[item.id];
+                } else {
+                  var prevSubfolderName = tf.subfolderNames[item.id];
+                  tf.subfolderNames[item.id] = item.name;
+                  if (prevSubfolderName && prevSubfolderName !== item.name) {
+                    var relabeledBreadcrumbs = 0;
+                    acctData.notes.forEach(function (n) {
+                      if (n.tag !== tf.name) return;
+                      var updatedBreadcrumb = relabelBreadcrumbSegment(n.folderPath, prevSubfolderName, item.name);
+                      if (updatedBreadcrumb !== n.folderPath) { n.folderPath = updatedBreadcrumb; relabeledBreadcrumbs++; }
+                    });
+                    if (relabeledBreadcrumbs) {
+                      summary.relabeledSubfolders.push({ oldName: prevSubfolderName, newName: item.name, count: relabeledBreadcrumbs });
+                    }
                   }
                 }
-                return;
               }
               if (item.deleted) { deletedIds[item.id] = true; return; }
               createdItems[item.id] = { item: item, tagName: rec.tf.name };
@@ -1200,7 +1292,8 @@
           // reading each .lnk's content. Everything else about it (tagging,
           // move detection) proceeds exactly like any other file below.
           var lnkIds = Object.keys(createdItems).filter(function (id) {
-            return /\.lnk$/i.test(createdItems[id].item.name);
+            var c = createdItems[id];
+            return !c.item.folder && /\.lnk$/i.test(c.item.name);
           });
           return Promise.all(lnkIds.map(function (id) {
             return resolveLnkUrl(driveBaseUrl, id, token).then(function (url) {
@@ -1546,6 +1639,100 @@
     });
   }
 
+  // =========================================================================
+  // Backfill Folders — one-time pass for sub-folders that already existed
+  // before folder-notes shipped (2026-07-30). Sync's delta feed only
+  // reports a sub-folder the first time it CHANGES after that; one that's
+  // sat untouched since before this feature existed would otherwise never
+  // become a folder-note. Walks each tracked top-level folder's full
+  // sub-folder tree fresh (via walkFolderRecursiveFolders, the Graph
+  // children call — no $batch needed, this isn't a per-note lookup) and
+  // creates any missing folder-note, matched by driveItemId so a re-run is
+  // a no-op. Also seeds/refreshes each tracked folder's subfolderNames
+  // rename-tracking baseline from this same walk, closing the same
+  // narrow "first-ever sighting" gap already known from the 2026-07-29
+  // breadcrumb-refresh work for every sub-folder this pass touches.
+  // =========================================================================
+  var backfillFoldersInProgress = false;
+
+  function renderBackfillFoldersStatus() {
+    if (!el.backfillFoldersStatus) return;
+    var acctData = activeAccountData();
+    if (backfillFoldersInProgress) return; // runBackfillFolders owns the status text while running
+    if (!acctData || acctData.trackedFolders.length === 0) {
+      el.backfillFoldersStatus.textContent = "No tracked folders yet — run Sync first.";
+      el.backfillFoldersBtn.disabled = true;
+      return;
+    }
+    el.backfillFoldersBtn.disabled = false;
+    var last = localConfig.lastFolderBackfill;
+    if (!last) {
+      el.backfillFoldersStatus.textContent = "One-time pass to create a folder-note for every existing sub-folder — needed since Sync only catches sub-folders that change after this feature shipped.";
+      return;
+    }
+    var d = new Date(last.at);
+    var sameDay = d.toDateString() === new Date().toDateString();
+    var time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    var when = sameDay ? time : (d.toLocaleDateString() + " " + time);
+    el.backfillFoldersStatus.textContent = "Last run " + when + ": " + last.created + " folder-note" + (last.created === 1 ? "" : "s") + " created" + (last.failed ? (" (" + last.failed + " folder" + (last.failed === 1 ? "" : "s") + " couldn't be checked)") : "") + ".";
+  }
+
+  function runBackfillFolders() {
+    if (backfillFoldersInProgress) return;
+    var acctCfg = activeAccountConfig();
+    var acctData = activeAccountData();
+    if (!acctCfg || !acctData || acctData.trackedFolders.length === 0) { renderBackfillFoldersStatus(); return; }
+
+    backfillFoldersInProgress = true;
+    el.backfillFoldersBtn.disabled = true;
+    var folders = acctData.trackedFolders.slice();
+    var total = folders.length;
+    var done = 0;
+    var created = 0;
+    var failed = 0;
+    el.backfillFoldersStatus.textContent = "Checking tracked folders... 0/" + total;
+
+    getTokenForActiveAccount({ silentOnly: false }).then(function (token) {
+      return folders.reduce(function (p, tf) {
+        return p.then(function () {
+          return walkFolderRecursiveFolders(acctCfg.driveBaseUrl, tf.id, token).then(function (subfolders) {
+            tf.subfolderNames = tf.subfolderNames || {};
+            var notesByItemId = {};
+            acctData.notes.forEach(function (n) { notesByItemId[n.driveItemId] = n; });
+            subfolders.forEach(function (item) {
+              tf.subfolderNames[item.id] = item.name; // seed/refresh the rename baseline either way
+              if (notesByItemId[item.id]) return; // already a note — a prior backfill run, or Sync already caught it
+              var note = makeNote(item, tf.name, acctCfg);
+              acctData.notes.push(note);
+              notesByItemId[item.id] = note;
+              created++;
+            });
+          }).catch(function () { failed++; });
+        }).then(function () {
+          done++;
+          el.backfillFoldersStatus.textContent = "Checking tracked folders... " + done + "/" + total + (failed ? (" (" + failed + " failed)") : "");
+          saveLocalData();
+          return delay(150);
+        });
+      }, Promise.resolve());
+    }).then(function () {
+      persistAndSync();
+      render();
+      backfillFoldersInProgress = false;
+      localConfig.lastFolderBackfill = { at: new Date().toISOString(), created: created, failed: failed };
+      saveLocalConfig();
+      renderBackfillFoldersStatus();
+      if (failed) showGlobalStatus(failed + " of " + total + " tracked folders couldn't be checked — run again to retry.", "error");
+      else showGlobalStatus("Backfill complete — " + created + " folder-note" + (created === 1 ? "" : "s") + " created.", "success");
+    }).catch(function (err) {
+      persistAndSync();
+      render();
+      backfillFoldersInProgress = false;
+      renderBackfillFoldersStatus();
+      showGlobalStatus("Backfill stopped: " + (err && err.message ? err.message : err) + " — folders already checked were saved, run again to continue.", "error");
+    });
+  }
+
   // A missing tracked folder (deleted or moved out of Projects) has its
   // notes deleted automatically, no confirmation — the removal is just
   // reported afterward in the post-Sync summary banner.
@@ -1817,6 +2004,13 @@
     tag.textContent = note.tag;
     metaRow.appendChild(tag);
 
+    if (note.type === "folder") {
+      var typeChip = document.createElement("span");
+      typeChip.className = "note-type-chip";
+      typeChip.textContent = "Folder";
+      metaRow.appendChild(typeChip);
+    }
+
     var path = document.createElement("span");
     path.className = "note-path";
     path.textContent = note.folderPath;
@@ -1895,10 +2089,17 @@
     tag.className = "note-tag";
     tag.textContent = note.tag;
     metaRow.appendChild(tag);
+    if (note.type === "folder") {
+      var typeChip = document.createElement("span");
+      typeChip.className = "note-type-chip";
+      typeChip.textContent = "Folder";
+      metaRow.appendChild(typeChip);
+    }
     var link = document.createElement("a");
     link.className = "note-link-pill";
     link.id = "previewOpenPill";
-    var isUrlLike = /\.url$/i.test(note.filename) || /\.lnk$/i.test(note.filename);
+    var isFolder = note.type === "folder";
+    var isUrlLike = !isFolder && (/\.url$/i.test(note.filename) || /\.lnk$/i.test(note.filename));
     var canOpenLocal = isDesktopPc() && acctCfg && acctCfg.localSyncRoot;
     if (isUrlLike) {
       // .url notes, and .lnk notes that resolved to a URL at Sync time,
@@ -1914,6 +2115,16 @@
       link.addEventListener("click", function (e) {
         e.preventDefault();
         openNoteTarget(note);
+      });
+    } else if (isFolder && canOpenLocal) {
+      // A folder-note's Open should open the folder ITSELF in Explorer,
+      // not try to launch it as a file (which the openLocalFileLive/
+      // papertrail-openfile: path below would do) — same live-resolve
+      // pattern, different protocol. See openLocalFolderLive.
+      link.href = "#";
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        openLocalFolderLive(note, acctCfg);
       });
     } else if (canOpenLocal) {
       // PC with a known local sync root: open the real local file directly
@@ -1956,6 +2167,23 @@
     el.contentRight.appendChild(wrap);
 
     if (!acctCfg) { thumbSlot.textContent = "No preview available."; return; }
+
+    // Folder-note preview: list its immediate children (metadata only, via
+    // the same Graph children call used elsewhere — nothing downloaded).
+    // Runs before the .url/.lnk/thumbnail checks below so a folder that
+    // happens to be named e.g. "notes.md" is never routed to those.
+    if (note.type === "folder") {
+      getTokenForActiveAccount().then(function (token) {
+        return listChildrenById(acctCfg.driveBaseUrl, note.driveItemId, token);
+      }).then(function (children) {
+        if (mySeq !== previewRequestSeq) return;
+        renderFolderContentsPreview(thumbSlot, children);
+      }).catch(function () {
+        if (mySeq !== previewRequestSeq) return;
+        thumbSlot.textContent = "Couldn't load this folder's contents.";
+      });
+      return;
+    }
 
     if (/\.url$/i.test(note.filename)) {
       getTokenForActiveAccount().then(function (token) {
@@ -2105,13 +2333,19 @@
   // blank-then-redirect fallback below is kept only for the rare case
   // where the preview genuinely hasn't resolved yet.
   function openNoteTarget(note) {
-    var isUrlLike = /\.url$/i.test(note.filename) || /\.lnk$/i.test(note.filename);
+    var isFolder = note.type === "folder";
+    var isUrlLike = !isFolder && (/\.url$/i.test(note.filename) || /\.lnk$/i.test(note.filename));
     if (!isUrlLike) {
       // Mirrors the Open pill's PC-local-file logic in renderPreview —
       // this was left on the old always-webUrl behavior when that was
       // added, so Enter silently diverged from clicking Open until now.
+      // Folder-notes (added 2026-07-30) get the same mirroring: Enter must
+      // route to openLocalFolderLive, not openLocalFileLive, or it would
+      // try to launch the folder as a file via papertrail-openfile:.
       var acctCfg = activeAccountConfig();
-      if (isDesktopPc() && acctCfg && acctCfg.localSyncRoot) {
+      if (isFolder && isDesktopPc() && acctCfg && acctCfg.localSyncRoot) {
+        openLocalFolderLive(note, acctCfg);
+      } else if (isDesktopPc() && acctCfg && acctCfg.localSyncRoot) {
         openLocalFileLive(note, acctCfg); // resolved live, see openLocalFileLive
       } else {
         window.open(note.webUrl, "_blank", "noopener");
@@ -2175,6 +2409,49 @@
     pre.className = "preview-text";
     pre.textContent = text;
     slot.appendChild(pre);
+  }
+
+  // Folder-note preview: sub-folders first, then files, each group sorted
+  // case-insensitively by name — mirrors how Explorer itself lists a
+  // folder. Capped at 300 rows so a very large folder (907 Cornerstone's
+  // own subfolder tree, for one) doesn't render an unbounded list; the
+  // stale-response guard (previewRequestSeq/mySeq) is applied by the caller
+  // before this ever runs, same as every other preview branch.
+  var FOLDER_PREVIEW_CAP = 300;
+  function renderFolderContentsPreview(slot, children) {
+    slot.innerHTML = "";
+    slot.className = "preview-thumb-slot";
+    var caption = document.createElement("div");
+    caption.className = "folder-contents-caption";
+    if (children.length === 0) {
+      caption.textContent = "Empty folder";
+      slot.appendChild(caption);
+      return;
+    }
+    var sorted = children.slice().sort(function (a, b) {
+      if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    });
+    var capped = sorted.slice(0, FOLDER_PREVIEW_CAP);
+    caption.textContent = children.length + " item" + (children.length === 1 ? "" : "s") +
+      (children.length > FOLDER_PREVIEW_CAP ? (" (showing first " + FOLDER_PREVIEW_CAP + " of " + children.length + ")") : "");
+    slot.appendChild(caption);
+    var list = document.createElement("div");
+    list.className = "folder-contents-list";
+    capped.forEach(function (c) {
+      var row = document.createElement("div");
+      row.className = "folder-contents-row";
+      var kind = document.createElement("span");
+      kind.className = "folder-contents-kind";
+      kind.textContent = c.folder ? "Folder" : "File";
+      row.appendChild(kind);
+      var name = document.createElement("span");
+      name.className = "folder-contents-name";
+      name.textContent = c.name;
+      row.appendChild(name);
+      list.appendChild(row);
+    });
+    slot.appendChild(list);
   }
 
   // Read-only — every top-level OneDrive folder under the tag root is
@@ -2413,9 +2690,10 @@
 
     el.syncBtn.addEventListener("click", function () { runSync(); });
 
-    el.manageBtn.addEventListener("click", function () { renderBackfillStatus(); renderBreadcrumbRefreshStatus(); openSheet("settingsHomeSheet"); });
+    el.manageBtn.addEventListener("click", function () { renderBackfillStatus(); renderBreadcrumbRefreshStatus(); renderBackfillFoldersStatus(); openSheet("settingsHomeSheet"); });
     el.backfillBtn.addEventListener("click", runBackfill);
     el.breadcrumbRefreshBtn.addEventListener("click", runBreadcrumbRefresh);
+    el.backfillFoldersBtn.addEventListener("click", runBackfillFolders);
     el.settingsHomeClose.addEventListener("click", function () { closeSheet("settingsHomeSheet"); });
     Array.prototype.forEach.call(document.querySelectorAll("#settingsHomeSheet .settings-row"), function (row) {
       row.addEventListener("click", function () {
