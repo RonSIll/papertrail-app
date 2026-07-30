@@ -182,13 +182,14 @@
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     color: #8a8a90;
   }
-  /* Height tuned so the scrollable tag list further down still starts at
-     exactly the same vertical position as the notes window's own top
-     edge — re-derive this (and re-check .sidebar-account-row's own live
-     height) after any change to the sidebar's top section or the
-     topbar's height; it's tuned to a live measurement, not computed
-     from surrounding CSS. */
-  .tag-sidebar-header { flex: 0 0 56.2px; }
+  /* Natural content height (was hand-tuned to 56.2px to pixel-match the
+     notes window's top edge, before the account switcher moved into
+     .sidebar-account-row above). That exact alignment is no longer
+     maintained: matching it now would mean either hiding this label
+     almost entirely or inflating the topbar's own height, both worse
+     than just letting the two panels' top sections differ slightly —
+     Ron's explicit call, 2026-07-30. */
+  .tag-sidebar-header { flex: 0 0 auto; padding-top: 10px; }
   .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
     flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 4px;
