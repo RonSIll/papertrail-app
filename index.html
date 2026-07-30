@@ -61,16 +61,19 @@
     border-bottom: 1px solid rgba(255,255,255,0.14);
   }
   /* One single row, Ron's request 2026-07-30 (superseding the earlier
-     two-row topbar-left/topbar-right split): account switcher, search
-     box, sort control, and Sync/Manage all sit side by side on one line.
-     The search box is the only flex-growing child, so it fills whatever
-     width the other three (all natural/content-sized) don't need —
-     this intentionally drops the previous deliberate width-matching
-     between the search box and the note-list column below it, since
-     the search box's width is no longer independent of the account
-     switcher/sort control's own widths. */
-  .topbar-row { display: flex; align-items: center; gap: 16px; padding: 0 16px; }
-  .account-row { display: flex; align-items: center; flex: 0 0 auto; }
+     two-row topbar-left/topbar-right split): search box, sort control,
+     and Sync/Manage all sit side by side on one line. The account
+     switcher itself moved out of the topbar entirely and into the top
+     of the tag sidebar instead (see .sidebar-account-row below) — Ron's
+     direct correction the same session, after an initial attempt kept
+     it in the topbar. The search box is the only flex-growing child
+     here, so it fills whatever width sort control/Sync/Manage (both
+     natural/content-sized) don't need. */
+  /* overflow-x: auto — safety net for a narrow window where the two
+     non-shrinking children plus the search box's 180px floor exceed the
+     row's available width: the row scrolls horizontally instead of
+     breaking the page's own layout. */
+  .topbar-row { display: flex; align-items: center; gap: 16px; padding: 0 16px; overflow-x: auto; }
   .sort-control, .topbar-actions { flex: 0 0 auto; }
   .topbar-actions { display: flex; align-items: center; gap: 6px; }
   /* Matches the topbar's own hardcoded dark gray (#3a3a3d, same as
@@ -109,8 +112,13 @@
   }
   /* flex: 1 1 auto — the only growing child of .topbar-row, so it
      absorbs whatever width the account switcher/sort control/Sync/
-     Manage (all natural-width) don't need. */
-  .search-box-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
+     Manage (all natural-width, flex-shrink:0) don't need. min-width
+     guards against the real case where those three combined leave very
+     little room: on a narrower window the search box stays at least
+     180px instead of collapsing toward unusable, and the row overflows
+     instead — a live-measured tradeoff of the one-row design, not an
+     oversight. */
+  .search-box-wrap { position: relative; flex: 1 1 auto; min-width: 180px; }
   .search-clear-btn {
     position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
     background: none; border: none; color: var(--text3); font-size: 14px;
@@ -164,21 +172,22 @@
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
     background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
   }
+  /* Account switcher, at the very top of the sidebar, above "Note Tags"
+     — Ron's explicit correction 2026-07-30: it belongs in the left
+     panel itself, not the topbar. flex: 0 0 auto — its height comes
+     from .account-select-label's own content, not a hardcoded value. */
+  .sidebar-account-row { flex: 0 0 auto; padding: 10px 18px 6px; }
   .sidebar-section-title {
     display: flex; align-items: flex-end; padding: 0 18px 6px;
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     color: #8a8a90;
   }
-  /* 56.2px (not the original 54px) so the scrollable tag list below it
-     starts at exactly the same vertical position as the notes window's
-     own top edge — measured live against the topbar's actual rendered
-     height (57.2px, after collapsing the topbar to one row) minus the
-     1px divider between this header and the tag list. Ron's explicit
-     request 2026-07-30; the scrollable list itself is correspondingly
-     shorter by the same amount, since the sidebar's total height is
-     fixed to the window. Re-derive this value again if the topbar's
-     own height ever changes for any reason — it's tuned to a live
-     measurement, not computed from the topbar's own CSS. */
+  /* Height tuned so the scrollable tag list further down still starts at
+     exactly the same vertical position as the notes window's own top
+     edge — re-derive this (and re-check .sidebar-account-row's own live
+     height) after any change to the sidebar's top section or the
+     topbar's height; it's tuned to a live measurement, not computed
+     from surrounding CSS. */
   .tag-sidebar-header { flex: 0 0 56.2px; }
   .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
@@ -335,6 +344,12 @@
 <body>
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
+    <div class="sidebar-account-row" id="accountRow">
+      <div class="account-select-wrap">
+        <select class="account-select" id="accountSelect"></select>
+        <span class="account-select-label" id="accountSelectLabel"></span>
+      </div>
+    </div>
     <div class="tag-sidebar-header sidebar-section-title">Note Tags</div>
     <div class="sidebar-divider"></div>
     <div class="tag-list-scroll" id="tagList"></div>
@@ -348,12 +363,6 @@
   <div class="main-column">
     <div class="topbar">
       <div class="topbar-row">
-        <div class="account-row" id="accountRow">
-          <div class="account-select-wrap">
-            <select class="account-select" id="accountSelect"></select>
-            <span class="account-select-label" id="accountSelectLabel"></span>
-          </div>
-        </div>
         <div class="search-box-wrap">
           <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
           <button class="search-clear-btn" id="searchClearBtn" title="Clear search" tabindex="-1" hidden>&#10005;</button>
