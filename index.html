@@ -432,31 +432,63 @@
 
   // Personal-use, single Azure app registration (multitenant + personal
   // accounts, "common" authority) covers both Ron's personal Microsoft
-  // account and, once he onboards it, the separate KellyVend business
-  // tenant — no second app registration needed unless that tenant's admin
-  // blocks external apps, in which case a per-account override could be
-  // added to LOCAL_CONFIG.accounts later.
+  // account and the separate KellyVend business tenant — no second app
+  // registration needed unless that tenant's admin blocks external apps,
+  // in which case a per-account override could be added to
+  // LOCAL_CONFIG.accounts later. Files.Read (delegated) already covers
+  // files the signed-in user has direct access to across both personal
+  // OneDrive and any SharePoint site drive, not just /me/drive, so no
+  // broader Sites.Read.All scope is requested up front — add it here (and
+  // expect a fresh consent prompt on next sign-in) only if KellyVend's
+  // first real sign-in actually comes back with a permissions error.
   var GRAPH_SCOPES = ["Files.Read"];
   var LOCAL_CONFIG_KEY = "paperTrailLocalConfig"; // azureClientId, gh{owner,repo,pat,sha}, accounts[], activeAccountKey
   var DATA_KEY = "paperTrailData"; // local cache of the synced JSON
   var DATA_PATH = "data.json";
 
-  // Fixed per-account tag-source roots. Personal is decided; KellyVend is
-  // architected for but not onboarded — driveBaseUrl and root stay blank
-  // until Ron actually adds that account and fills this in via Accounts &
-  // Connections (not yet a built UI field — see Workflows to define).
+  // Fixed per-account tag-source roots and Graph drive endpoints, keyed by
+  // account key (see ACCOUNT_KEY_ORDER below for how a newly-added account
+  // gets assigned one of these keys). Personal's driveBaseUrl is a fixed
+  // constant (the /me/drive singleton). KellyVend has no such fixed URL —
+  // it's a SharePoint site document library, whose drive id is tenant-
+  // specific and only discoverable via a live Graph call — so it carries a
+  // sitePath descriptor instead, resolved once into a real driveBaseUrl by
+  // resolveAccountDriveBaseUrl the first time this account is signed into
+  // (see addAccountFlow), then cached on the account record like any other
+  // field here.
   var ACCOUNT_DEFAULTS = {
     personal: {
       label: "Personal",
       tagRootPath: "Projects",
       driveBaseUrl: "https://graph.microsoft.com/v1.0/me/drive",
       // Local OneDrive-sync mirror of tagRootPath on this PC — lets the
-      // FILE LOCATION pill build a real filesystem path. Undefined for any
-      // account without a known local sync mirror (e.g. KellyVend today);
-      // the pill simply doesn't render in that case.
+      // FILE LOCATION pill build a real filesystem path.
       localSyncRoot: "C:\\Users\\ronsi\\OneDrive\\Projects"
+    },
+    kellyvend: {
+      label: "KellyVend",
+      // This account's tag-source root IS the document library's own
+      // root — there's no "Projects"-style subfolder beneath it the way
+      // Personal has. An empty tagRootPath means every folder directly
+      // under the drive root is a candidate tag; listChildrenByPath and
+      // folderBreadcrumb both special-case an empty tagRootPath to work
+      // against the drive root directly rather than a named subfolder.
+      tagRootPath: "",
+      // hostname + server-relative site path, used once (see
+      // resolveAccountDriveBaseUrl) to resolve the site's default document
+      // library drive via "GET /sites/{sitePath}:/drive". Confirmed
+      // 2026-07-30 against https://kellyvend.sharepoint.com/sites/KellyVendNetwork/Shared%20Documents/...
+      sitePath: "kellyvend.sharepoint.com:/sites/KellyVendNetwork",
+      localSyncRoot: "C:\\Users\\ronsi\\KellyVend LLC\\KellyVend Network - Documents"
     }
   };
+
+  // The order a brand-new account gets assigned one of the keys above —
+  // not alphabetical or arbitrary, this is "whichever of the two known
+  // roles isn't taken yet" so the second real sign-in correctly becomes
+  // "kellyvend" rather than a generic "account1" that ACCOUNT_DEFAULTS has
+  // no entry for. See addAccountFlow.
+  var ACCOUNT_KEY_ORDER = ["personal", "kellyvend"];
 
   // =========================================================================
   // State
@@ -783,29 +815,55 @@
       return app.loginPopup({ scopes: GRAPH_SCOPES }).then(function (result) {
         var homeAccountId = result.account.homeAccountId;
         var already = localConfig.accounts.find(function (a) { return a.homeAccountId === homeAccountId; });
-        if (!already) {
-          var key = localConfig.accounts.length === 0 ? "personal" : ("account" + localConfig.accounts.length);
-          var defaults = ACCOUNT_DEFAULTS[key] || {};
+        if (already) {
+          localConfig.activeAccountKey = already.key;
+          saveLocalConfig();
+          renderAccountSelect();
+          renderAccountsList();
+          render();
+          return;
+        }
+        var usedKeys = localConfig.accounts.map(function (a) { return a.key; });
+        var key = ACCOUNT_KEY_ORDER.filter(function (k) { return usedKeys.indexOf(k) === -1; })[0] || ("account" + localConfig.accounts.length);
+        var defaults = ACCOUNT_DEFAULTS[key] || {};
+        return resolveAccountDriveBaseUrl(defaults, result.accessToken).then(function (driveBaseUrl) {
           localConfig.accounts.push({
             key: key,
             label: defaults.label || result.account.username,
             homeAccountId: homeAccountId,
             tagRootPath: defaults.tagRootPath || "",
-            driveBaseUrl: defaults.driveBaseUrl || "https://graph.microsoft.com/v1.0/me/drive",
+            driveBaseUrl: driveBaseUrl,
             localSyncRoot: defaults.localSyncRoot || null
           });
           localConfig.activeAccountKey = key;
-        } else {
-          localConfig.activeAccountKey = already.key;
-        }
-        saveLocalConfig();
-        renderAccountSelect();
-        renderAccountsList();
-        render();
+          saveLocalConfig();
+          renderAccountSelect();
+          renderAccountsList();
+          render();
+        });
       });
     }).catch(function (err) {
       alert("Sign-in failed: " + (err && err.message ? err.message : err));
     });
+  }
+
+  // Resolves the Graph drive endpoint for a newly-added account. Personal
+  // has a fixed driveBaseUrl already (see ACCOUNT_DEFAULTS) and returns it
+  // straight away. KellyVend has only a sitePath descriptor, since its
+  // document library's drive id is tenant-specific and can't be hardcoded
+  // — GET /sites/{hostname}:/{site-path}:/drive resolves the site's
+  // default document library in one call, and its own "id" field is the
+  // real drive id to build https://graph.microsoft.com/v1.0/drives/{id}
+  // from. Resolved once here and cached on the account record afterward,
+  // so ordinary Sync never re-resolves it.
+  function resolveAccountDriveBaseUrl(defaults, token) {
+    if (defaults.driveBaseUrl) return Promise.resolve(defaults.driveBaseUrl);
+    if (defaults.sitePath) {
+      return graphFetch(GRAPH_ROOT + "/sites/" + defaults.sitePath + ":/drive", token).then(function (drive) {
+        return GRAPH_ROOT + "/drives/" + drive.id;
+      });
+    }
+    return Promise.resolve("https://graph.microsoft.com/v1.0/me/drive");
   }
 
   // opts.silentOnly skips the acquireTokenPopup fallback — used by
@@ -839,8 +897,14 @@
     });
   }
 
+  // path is falsy for an account whose tag-source root IS the drive root
+  // itself (KellyVend) — Graph's own root-children endpoint (no colon-path
+  // segment at all) is the correct call there, not "/root::/children"
+  // with nothing between the colons.
   function listChildrenByPath(driveBaseUrl, path, token) {
-    var url = driveBaseUrl + "/root:/" + encodeURIComponentPath(path) + ":/children?$top=200";
+    var url = path
+      ? (driveBaseUrl + "/root:/" + encodeURIComponentPath(path) + ":/children?$top=200")
+      : (driveBaseUrl + "/root/children?$top=200");
     return graphFetch(url, token).then(collectAllPages.bind(null, token));
   }
   function listChildrenById(driveBaseUrl, itemId, token) {
@@ -949,14 +1013,19 @@
   }
 
   // Folder-location breadcrumb: parentReference.path looks like
-  // "/drive/root:/Projects/910 Housing/Renovations" — strip everything
-  // through the tag-source root segment so neither "OneDrive" nor
-  // "Projects" (or whatever the root folder is named) ever show.
+  // "/drive/root:/Projects/910 Housing/Renovations" for Personal, or
+  // "/drives/{driveId}/root:/00 Ideas/..." for a SharePoint-backed account
+  // like KellyVend (a plural, id-scoped "drives" segment instead of the
+  // singleton "/me/drive" one) — strip everything through the tag-source
+  // root segment so neither the drive prefix nor the root folder's own
+  // name (e.g. "Projects") ever show. For an account whose tag-source root
+  // IS the drive root itself (empty tagRootPath, see ACCOUNT_DEFAULTS),
+  // there's no named segment to match — "root:" itself is the marker.
   function folderBreadcrumb(parentPath, tagRootPath) {
     if (!parentPath) return "";
-    var marker = "/" + tagRootPath;
+    var marker = tagRootPath ? ("/" + tagRootPath) : "root:";
     var idx = parentPath.indexOf(marker);
-    if (idx === -1) return parentPath.replace(/^\/drive\/root:/, "");
+    if (idx === -1) return parentPath.replace(/^.*\/root:/, "");
     var rest = parentPath.slice(idx + marker.length); // leading slash or empty
     return rest.replace(/^\//, "").split("/").join(" / ");
   }
@@ -978,8 +1047,7 @@
   // Builds a real Windows path from a folder-location breadcrumb string
   // plus the active account's local OneDrive sync root — safe to split on
   // " / " since folder names never contain a literal slash. Returns null
-  // when the active account has no known local sync mirror (e.g. KellyVend
-  // today).
+  // for any account with no known local sync mirror configured.
   function buildLocalPath(breadcrumb, acctCfg) {
     if (!acctCfg || !acctCfg.localSyncRoot) return null;
     var relPath = breadcrumb ? breadcrumb.split(" / ").join("\\") : "";
