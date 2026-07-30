@@ -68,7 +68,13 @@
      same padding .content itself uses — always renders at exactly the note
      card width, at any window size, rather than one calc() tuned to a
      single tested width. */
-  .topbar-columns { display: flex; align-items: flex-end; }
+  /* align-items: flex-start (not the original flex-end) — Ron's request
+     2026-07-30: .topbar-right's single row (sort control + Sync/Manage)
+     now lines up with .topbar-left's TOP row (the account switcher)
+     instead of its bottom row (the search box), so the account dropdown
+     and the sort control read as one shared top strip, with the search
+     box sitting in the now-mostly-empty space directly beneath both. */
+  .topbar-columns { display: flex; align-items: flex-start; }
   .topbar-left { flex: 1 1 0; min-width: 0; padding: 0 16px; }
   .topbar-right {
     flex: 1 1 0; min-width: 0; padding: 0 16px; border-left: 1px solid transparent;
@@ -76,10 +82,13 @@
   }
   /* Wraps Last synced/Sync/Manage and pushes just that group to the far
      right via the auto margin, leaving .sort-control anchored at the start
-     of .topbar-right — i.e. directly against the right edge of the search
-     box in .topbar-left, not dragged along with the rest of the group. */
+     of .topbar-right — i.e. directly above the search box in .topbar-left,
+     not dragged along with the rest of the group. */
   .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-  .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  /* margin-bottom shrunk from 10px to 2px, Ron's request 2026-07-30 — the
+     account row and the search box now read as a tightly-packed pair
+     rather than two separately-spaced rows. */
+  .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
   /* Matches the topbar's own hardcoded dark gray (#3a3a3d, same as
      .tag-sidebar/.icon-btn-top) rather than the light/dark theme vars —
      the account switcher lives in the dark topbar chrome, not the
