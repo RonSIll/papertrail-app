@@ -80,14 +80,13 @@
      box in .topbar-left, not dragged along with the rest of the group. */
   .topbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
   .account-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  /* Matches the topbar's own hardcoded dark gray (#3a3a3d, same as
+     .tag-sidebar/.icon-btn-top) rather than the light/dark theme vars —
+     the account switcher lives in the dark topbar chrome, not the
+     document body, so it follows that chrome's own palette. */
   .account-select {
     flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px; font-weight: 500;
-    border: 1px solid var(--border); background: var(--bg2); color: var(--text);
-  }
-  .icon-btn-sm {
-    height: 34px; width: 34px; flex: 0 0 auto; border: 1px solid var(--border);
-    background: var(--bg2); color: var(--text); display: flex; align-items: center;
-    justify-content: center; cursor: pointer; font-size: 16px;
+    border: none; background: #3a3a3d; color: #c8c8cc;
   }
   .topbar-left input[type="text"] {
     width: 100%; border: 1px solid var(--border); background: var(--bg2);
@@ -324,7 +323,6 @@
         <div class="topbar-left">
           <div class="account-row" id="accountRow">
             <select class="account-select" id="accountSelect"></select>
-            <button class="icon-btn-sm" id="addAccountBtn" title="Add account">+</button>
           </div>
           <div class="search-box-wrap">
             <input type="text" id="searchInput" name="papertrail-filename-search" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -612,7 +610,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountRow","accountSelect","addAccountBtn","searchInput","searchClearBtn","content","contentRight","tagList","typeList","sidebarTotal","globalStatusMsg",
+      "accountRow","accountSelect","searchInput","searchClearBtn","content","contentRight","tagList","typeList","sidebarTotal","globalStatusMsg",
       "sortArrowBtn","sortCycleBtn",
       "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
@@ -2613,7 +2611,6 @@
       saveLocalConfig();
       render();
     });
-    el.addAccountBtn.addEventListener("click", addAccountFlow);
 
     el.searchInput.addEventListener("input", function () {
       searchState.text = el.searchInput.value;
