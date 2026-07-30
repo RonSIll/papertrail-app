@@ -68,13 +68,14 @@
      same padding .content itself uses — always renders at exactly the note
      card width, at any window size, rather than one calc() tuned to a
      single tested width. */
-  /* align-items: flex-start (not the original flex-end) — Ron's request
-     2026-07-30: .topbar-right's single row (sort control + Sync/Manage)
-     now lines up with .topbar-left's TOP row (the account switcher)
-     instead of its bottom row (the search box), so the account dropdown
-     and the sort control read as one shared top strip, with the search
-     box sitting in the now-mostly-empty space directly beneath both. */
-  .topbar-columns { display: flex; align-items: flex-start; }
+  /* align-items: flex-end — Ron's request 2026-07-30: .topbar-right's
+     single row (sort control + Last synced/Sync/Manage) bottom-aligns
+     against .topbar-left's stack, landing flush with its bottom row
+     (the search box) rather than its top row (the account switcher).
+     Since that row and the search box are nearly the same height
+     (~36-37px each), bottom-aligned reads as vertically centered
+     against the search box specifically. */
+  .topbar-columns { display: flex; align-items: flex-end; }
   .topbar-left { flex: 1 1 0; min-width: 0; padding: 0 16px; }
   .topbar-right {
     flex: 1 1 0; min-width: 0; padding: 0 16px; border-left: 1px solid transparent;
