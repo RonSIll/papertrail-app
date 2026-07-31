@@ -1192,6 +1192,29 @@
   // Runs automatically on app open (silently unless something changed) and
   // on demand via the Sync button.
   // =========================================================================
+  // A folder named exactly "0000-03 Exclude from PaperTrail" (matched
+  // case-insensitively) hides itself and everything nested inside it, at
+  // any depth, from PaperTrail entirely — decided 2026-07-31. It can appear
+  // under any tracked top-level folder, more than once, anywhere in the
+  // tree, since matching is by name alone, not by a single fixed location.
+  var EXCLUDE_FOLDER_NAME = "0000-03 exclude from papertrail";
+
+  function isExcludeFolderName(name) {
+    return !!name && name.toLowerCase() === EXCLUDE_FOLDER_NAME;
+  }
+
+  // True if a note IS the excluded folder itself, or its cached folderPath
+  // breadcrumb shows the excluded folder as an ancestor — checked off
+  // already-stored data (same as every other Sync-time reconciliation check
+  // in this file), not a live Graph call. Used both to keep new notes from
+  // ever being created under an excluded folder and to sweep out any note
+  // that already existed there before this rule applied.
+  function isExcludedNote(note) {
+    if (note.type === "folder" && isExcludeFolderName(note.filename)) return true;
+    if (!note.folderPath) return false;
+    return note.folderPath.split(" / ").some(isExcludeFolderName);
+  }
+
   function makeNote(item, tag, acctCfg) {
     return {
       id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ("n-" + Date.now() + "-" + Math.random().toString(16).slice(2)),
@@ -1252,7 +1275,7 @@
   function performSync(acctCfg, token) {
     var acctData = activeAccountData();
     var driveBaseUrl = acctCfg.driveBaseUrl;
-    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, renamedFileCount: 0, relabeledSubfolders: [], failedFolders: [] };
+    var summary = { newFolders: [], renamedFolders: [], removedFolders: [], newFileCount: 0, deletedFileCount: 0, movedFileCount: 0, renamedFileCount: 0, relabeledSubfolders: [], excludedFileCount: 0, failedFolders: [] };
 
     return listChildrenByPath(driveBaseUrl, acctCfg.tagRootPath, token).then(function (rootChildren) {
       var realFolders = rootChildren.filter(function (c) { return c.folder; });
@@ -1450,6 +1473,23 @@
             Object.keys(deletedIds).forEach(function (itemId) {
               var idx = acctData.notes.findIndex(function (n) { return n.driveItemId === itemId; });
               if (idx !== -1) { acctData.notes.splice(idx, 1); summary.deletedFileCount++; }
+            });
+
+            // Excluded-folder sweep: runs every Sync, over the FULL note
+            // list, not just this pass's delta/walk results — a file or
+            // folder already sitting quietly under an excluded folder never
+            // shows up in a delta feed unless something about it changes,
+            // so a one-time-only check at create time would miss anything
+            // already there before this rule applied (including a note that
+            // predates the exclude folder existing at all). Catches the
+            // exclude folder's own folder-note too, so it stays fully
+            // hidden rather than just its contents. Runs before the
+            // newFolders count below so a brand-new top-level folder's
+            // reported note count already reflects any excluded subtree.
+            acctData.notes = acctData.notes.filter(function (n) {
+              if (!isExcludedNote(n)) return true;
+              summary.excludedFileCount++;
+              return false;
             });
 
             newFolderRecords.forEach(function (rec) {
@@ -1818,6 +1858,7 @@
               tf.subfolderNames[item.id] = item.name; // seed/refresh the rename baseline either way
               if (notesByItemId[item.id]) return; // already a note — a prior backfill run, or Sync already caught it
               var note = makeNote(item, tf.name, acctCfg);
+              if (isExcludedNote(note)) return; // itself, or nested under, an excluded folder
               acctData.notes.push(note);
               notesByItemId[item.id] = note;
               created++;
@@ -1885,6 +1926,9 @@
     if (summary.deletedFileCount) {
       parts.push(summary.deletedFileCount + " note" + (summary.deletedFileCount === 1 ? "" : "s") + " removed for deleted files");
     }
+    if (summary.excludedFileCount) {
+      parts.push(summary.excludedFileCount + " note" + (summary.excludedFileCount === 1 ? "" : "s") + " removed (excluded folder)");
+    }
     var actuallyRemoved = summary.removedFolders.filter(function (r) { return r.deleted; });
     if (actuallyRemoved.length) {
       parts.push(actuallyRemoved.map(function (r) { return r.name + " removed (" + r.count + " note" + (r.count === 1 ? "" : "s") + " deleted)"; }).join(", "));
@@ -1899,7 +1943,7 @@
   function summaryHasChanges(summary) {
     return summary.newFolders.length > 0 || summary.renamedFolders.length > 0 ||
       summary.movedFileCount > 0 || summary.renamedFileCount > 0 || summary.newFileCount > 0 || summary.deletedFileCount > 0 ||
-      summary.relabeledSubfolders.length > 0 ||
+      summary.relabeledSubfolders.length > 0 || summary.excludedFileCount > 0 ||
       summary.removedFolders.some(function (r) { return r.deleted; }) || summary.failedFolders.length > 0;
   }
 
