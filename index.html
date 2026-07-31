@@ -615,22 +615,32 @@
     return words.every(function (w) { return lower.indexOf(w) !== -1; });
   }
 
-  // File-type filter: six categories (five by extension, plus Folders),
-  // alphabetical — a file whose extension matches none of these just isn't
-  // reachable through the type filter, though it stays visible under an
-  // unfiltered view. Matched case-insensitively since real OneDrive files
-  // carry mixed-case extensions (.JPG, .PDF). A .lnk is included under Links
-  // unconditionally: performSync's Phase B already discards any .lnk that
-  // doesn't resolve to a real URL before it ever becomes a note, so any
-  // .lnk note that exists in data is already known to be a link. Folders
-  // (added 2026-07-30) are never extension-matched at all — noteFileType
-  // checks note.type first, so a folder literally named "report.pdf" is
-  // still counted as a Folder, never a Document.
+  // File-type filter: six categories, alphabetical — a file whose extension
+  // matches none of these just isn't reachable through the type filter,
+  // though it stays visible under an unfiltered view. Matched
+  // case-insensitively since real OneDrive files carry mixed-case
+  // extensions (.JPG, .PDF). A .lnk is included under Links unconditionally:
+  // performSync's Phase B already discards any .lnk that doesn't resolve to
+  // a real URL before it ever becomes a note, so any .lnk note that exists
+  // in data is already known to be a link. Folders (added 2026-07-30) are
+  // never extension-matched at all — noteFileType checks note.type first,
+  // so a folder literally named "report.pdf" is still counted as a Folder,
+  // never a Document.
+  //
+  // Notes is not an extension category (changed 2026-07-31, was ["md"]):
+  // .md files now classify as Documents like any other document extension.
+  // "Notes" instead means "lives inside a 0000-02 ... Notes folder" —
+  // Ron's existing naming convention for the Joplin-migration landing
+  // subfolders (e.g. "0000-02 Cornerstone Notes", "0000-02 Ron Notes") —
+  // matched by folder-name prefix, case-insensitively, at any depth under
+  // any tracked top-level folder, the same breadcrumb-scanning approach
+  // already used for the "0000-03 Exclude from PaperTrail" rule below. This
+  // overrides extension matching: a PDF or JPG sitting inside a 0000-02
+  // folder is "Notes," not Documents or Images.
   var FILE_TYPE_CATEGORIES = ["Documents", "Folders", "Images", "Links", "Media", "Notes"];
   var FILE_TYPE_EXTENSIONS = {
-    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"],
+    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "md"],
     Images: ["jpg", "jpeg", "png", "heic", "gif"],
-    Notes: ["md"],
     Links: ["url", "lnk"],
     Media: ["mp4", "mov", "mp3", "wav"]
   };
@@ -638,8 +648,16 @@
   Object.keys(FILE_TYPE_EXTENSIONS).forEach(function (type) {
     FILE_TYPE_EXTENSIONS[type].forEach(function (ext) { EXT_TO_FILE_TYPE[ext] = type; });
   });
+  var NOTES_FOLDER_PREFIX = "0000-02";
+  function isNotesFolderName(name) {
+    return !!name && name.toLowerCase().indexOf(NOTES_FOLDER_PREFIX) === 0;
+  }
+  function isInNotesFolder(note) {
+    return !!note.folderPath && note.folderPath.split(" / ").some(isNotesFolderName);
+  }
   function noteFileType(note) {
     if (note.type === "folder") return "Folders";
+    if (isInNotesFolder(note)) return "Notes";
     var m = /\.([a-z0-9]+)$/i.exec(note.filename);
     return m ? (EXT_TO_FILE_TYPE[m[1].toLowerCase()] || null) : null;
   }
