@@ -309,6 +309,12 @@
     width: 100%; border: 1px solid var(--border); background: var(--bg2); color: var(--text);
     padding: 10px; font-size: 14px; outline: none; margin-bottom: 8px;
   }
+  /* Visually masks the GitHub PAT field without type="password" — a real
+     password input causes Chrome to offer to save it as a credential for
+     this site, which then surfaces as an autofill suggestion on other
+     fields on the page (e.g. the search box). -webkit-text-security gives
+     the same dot-masked look in Chrome/Edge/Safari with no such side effect. */
+  .masked-input { -webkit-text-security: disc; }
   .sheet label { display: block; font-size: 13px; color: var(--text2); margin: 10px 0 4px; }
   .btn-row { display: flex; gap: 8px; margin-top: 10px; flex: 0 0 auto; }
   .btn-row button {
@@ -459,7 +465,7 @@
     <label>Repo name</label>
     <input type="text" id="ghRepo" placeholder="e.g. papertrail">
     <label>Personal access token</label>
-    <input type="password" id="ghPat" placeholder="github_pat_...">
+    <input type="text" id="ghPat" class="masked-input" placeholder="github_pat_..." autocomplete="off">
     <div class="btn-row"><button class="btn-primary" id="ghSaveBtn">Save connection settings</button></div>
     <div class="settings-note" id="ghSyncNote"></div>
   </div>
