@@ -627,37 +627,28 @@
   // so a folder literally named "report.pdf" is still counted as a Folder,
   // never a Document.
   //
-  // Notes is not an extension category (changed 2026-07-31, was ["md"]):
-  // .md files now classify as Documents like any other document extension.
-  // "Notes" instead means "lives inside a 0000-02 ... Notes folder" —
-  // Ron's existing naming convention for the Joplin-migration landing
-  // subfolders (e.g. "0000-02 Cornerstone Notes", "0000-02 Ron Notes") —
-  // matched by folder-name prefix, case-insensitively, at any depth under
-  // any tracked top-level folder, the same breadcrumb-scanning approach
-  // already used for the "0000-03 Exclude from PaperTrail" rule below. This
-  // overrides extension matching: a PDF or JPG sitting inside a 0000-02
-  // folder is "Notes," not Documents or Images.
+  // Notes is an extension category again (reverted 2026-07-31, briefly a
+  // folder-location rule keyed on "0000-02 ... Notes" folders): a note's
+  // type is always determined by its own file extension, never by which
+  // folder it lives in, matching how every other category already works.
+  // .md is the sole Notes extension; a scan of the real OneDrive tree
+  // showed .txt files are mostly reference/archival material (transcripts,
+  // manuals, an index), not quick notes, so .txt stays in Documents rather
+  // than joining Notes.
   var FILE_TYPE_CATEGORIES = ["Documents", "Folders", "Images", "Links", "Media", "Notes"];
   var FILE_TYPE_EXTENSIONS = {
-    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "md"],
+    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt"],
     Images: ["jpg", "jpeg", "png", "heic", "gif"],
     Links: ["url", "lnk"],
-    Media: ["mp4", "mov", "mp3", "wav"]
+    Media: ["mp4", "mov", "mp3", "wav"],
+    Notes: ["md"]
   };
   var EXT_TO_FILE_TYPE = {};
   Object.keys(FILE_TYPE_EXTENSIONS).forEach(function (type) {
     FILE_TYPE_EXTENSIONS[type].forEach(function (ext) { EXT_TO_FILE_TYPE[ext] = type; });
   });
-  var NOTES_FOLDER_PREFIX = "0000-02";
-  function isNotesFolderName(name) {
-    return !!name && name.toLowerCase().indexOf(NOTES_FOLDER_PREFIX) === 0;
-  }
-  function isInNotesFolder(note) {
-    return !!note.folderPath && note.folderPath.split(" / ").some(isNotesFolderName);
-  }
   function noteFileType(note) {
     if (note.type === "folder") return "Folders";
-    if (isInNotesFolder(note)) return "Notes";
     var m = /\.([a-z0-9]+)$/i.exec(note.filename);
     return m ? (EXT_TO_FILE_TYPE[m[1].toLowerCase()] || null) : null;
   }
