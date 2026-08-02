@@ -170,10 +170,11 @@
 
   /* Content row: note list + preview panel (tag sidebar now lives outside this row, full height) */
   .content-row { flex: 1 1 auto; display: flex; overflow: hidden; }
-  /* Fixed/scrolling zones, top to bottom: a "Tags" title, a divider, the
-     tag list scrolling independently, a divider, a "Note Types" title,
-     another divider, the fixed file-type list, and a final blank spacer —
-     scrolling the tag list must never move anything above or below it. */
+  /* Fixed/scrolling zones, top to bottom: a "Notes" title, a divider, the
+     fixed Notes filter row, a divider, a "Tags" title, a divider, the tag
+     list scrolling independently, a divider, a "Filters" title, another
+     divider, the fixed file-type list, and a final footer — scrolling the
+     tag list must never move anything above or below it. */
   .tag-sidebar {
     flex: 0 0 min(260px, 60vw); max-width: min(260px, 60vw);
     background: #3a3a3d; display: flex; flex-direction: column; overflow: hidden;
@@ -183,17 +184,14 @@
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     color: #8a8a90;
   }
-  /* 94.6px (not the original 54px) so the scrollable tag list below it
-     starts at exactly the same vertical position as the notes window's
-     own top edge — measured live against the topbar's actual rendered
-     height (95.6px, after the account-row margin-bottom shrink from
-     10px to 2px) minus the 1px divider between this header and the tag
-     list. Ron's explicit request 2026-07-30; the scrollable list itself
-     is correspondingly shorter by the same amount, since the sidebar's
-     total height is fixed to the window. Re-derive this value again if
-     the topbar's own height ever changes for any reason — it's tuned to
-     a live measurement, not computed from the topbar's own CSS. */
-  .tag-sidebar-header { flex: 0 0 94.6px; }
+  /* Was 94.6px (Ron's explicit request 2026-07-30) to make the scrollable
+     tag list start level with the notes window's own top edge, back when
+     Tags was the first section in the sidebar. That alignment isn't
+     achievable anymore now that the Notes section sits above Tags
+     (2026-08-02 reorder) without shrinking this header's own label space
+     to near nothing, so it's normalized to the same 54px the other two
+     section headers (Notes, Filters) already use. */
+  .tag-sidebar-header { flex: 0 0 54px; }
   .sidebar-divider { flex: 0 0 auto; height: 1px; background: rgba(255,255,255,0.14); }
   .tag-list-scroll {
     flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 4px;
@@ -355,6 +353,10 @@
 <body>
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
+    <div class="type-list-header sidebar-section-title">Notes</div>
+    <div class="sidebar-divider"></div>
+    <div class="type-list" id="notesFilterList"></div>
+    <div class="sidebar-divider"></div>
     <div class="tag-sidebar-header sidebar-section-title">Tags</div>
     <div class="sidebar-divider"></div>
     <div class="tag-list-scroll" id="tagList"></div>
@@ -362,10 +364,6 @@
     <div class="type-list-header sidebar-section-title">Filters</div>
     <div class="sidebar-divider"></div>
     <div class="type-list" id="typeList"></div>
-    <div class="sidebar-divider"></div>
-    <div class="type-list-header sidebar-section-title">Notes</div>
-    <div class="sidebar-divider"></div>
-    <div class="type-list" id="notesFilterList"></div>
     <div class="sidebar-divider"></div>
     <div class="type-list-footer" id="sidebarTotal"></div>
   </nav>
@@ -2124,7 +2122,7 @@
   }
 
   // Notes column — a single independent toggle, separate from the Filters
-  // row above rather than a sixth member of it: it combines with the tag
+  // row rather than a sixth member of it: it combines with the tag
   // filter, the type filter, and the filename search via AND, the same way
   // those three already combine with each other, so "Notes + Images" shows
   // only images sitting inside a "0000-02 Notes" folder. Same
