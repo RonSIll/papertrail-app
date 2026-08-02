@@ -355,13 +355,17 @@
 <body>
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
-    <div class="tag-sidebar-header sidebar-section-title">Note Tags</div>
+    <div class="tag-sidebar-header sidebar-section-title">Tags</div>
     <div class="sidebar-divider"></div>
     <div class="tag-list-scroll" id="tagList"></div>
     <div class="sidebar-divider"></div>
-    <div class="type-list-header sidebar-section-title">Note Types</div>
+    <div class="type-list-header sidebar-section-title">Filters</div>
     <div class="sidebar-divider"></div>
     <div class="type-list" id="typeList"></div>
+    <div class="sidebar-divider"></div>
+    <div class="type-list-header sidebar-section-title">Notes</div>
+    <div class="sidebar-divider"></div>
+    <div class="type-list" id="notesFilterList"></div>
     <div class="sidebar-divider"></div>
     <div class="type-list-footer" id="sidebarTotal"></div>
   </nav>
@@ -569,7 +573,7 @@
 
   var msalApp = null;
   var msalInitPromise = null;
-  var searchState = { text: "", tag: null, fileType: null };
+  var searchState = { text: "", tag: null, fileType: null, notesOnly: false };
 
   // Note-list display order — separate from searchState since it doesn't
   // filter anything, just orders the results. Resets to the default
@@ -615,7 +619,8 @@
     return words.every(function (w) { return lower.indexOf(w) !== -1; });
   }
 
-  // File-type filter: six categories, alphabetical — a file whose extension
+  // File-type filter ("Filters" in the sidebar, renamed 2026-08-01 from
+  // "Note Types"): five categories, alphabetical — a file whose extension
   // matches none of these just isn't reachable through the type filter,
   // though it stays visible under an unfiltered view. Matched
   // case-insensitively since real OneDrive files carry mixed-case
@@ -627,21 +632,20 @@
   // so a folder literally named "report.pdf" is still counted as a Folder,
   // never a Document.
   //
-  // Notes is an extension category again (reverted 2026-07-31, briefly a
-  // folder-location rule keyed on "0000-02 ... Notes" folders): a note's
-  // type is always determined by its own file extension, never by which
-  // folder it lives in, matching how every other category already works.
-  // .md is the sole Notes extension; a scan of the real OneDrive tree
-  // showed .txt files are mostly reference/archival material (transcripts,
-  // manuals, an index), not quick notes, so .txt stays in Documents rather
-  // than joining Notes.
-  var FILE_TYPE_CATEGORIES = ["Documents", "Folders", "Images", "Links", "Media", "Notes"];
+  // There is no extension-based Notes category anymore (folded into
+  // Documents 2026-08-01, after briefly being both an extension category
+  // and, even more briefly on 2026-07-31, a folder-location rule). .md
+  // files are Documents now, same as .txt. A separate, independent
+  // folder-location "Notes" filter lives lower in this file (see
+  // NOTES_FOLDER_NAME / isInNotesFolderNote and renderNotesFilter) — it is
+  // not part of FILE_TYPE_CATEGORIES, and combines with these five type
+  // categories rather than being one of them.
+  var FILE_TYPE_CATEGORIES = ["Documents", "Folders", "Images", "Links", "Media"];
   var FILE_TYPE_EXTENSIONS = {
-    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt"],
+    Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md"],
     Images: ["jpg", "jpeg", "png", "heic", "gif"],
     Links: ["url", "lnk"],
-    Media: ["mp4", "mov", "mp3", "wav"],
-    Notes: ["md"]
+    Media: ["mp4", "mov", "mp3", "wav"]
   };
   var EXT_TO_FILE_TYPE = {};
   Object.keys(FILE_TYPE_EXTENSIONS).forEach(function (type) {
@@ -670,7 +674,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountRow","accountSelect","accountSelectLabel","searchInput","searchClearBtn","content","contentRight","tagList","typeList","sidebarTotal","globalStatusMsg",
+      "accountRow","accountSelect","accountSelectLabel","searchInput","searchClearBtn","content","contentRight","tagList","typeList","notesFilterList","sidebarTotal","globalStatusMsg",
       "sortArrowBtn","sortCycleBtn",
       "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
@@ -1228,6 +1232,29 @@
     if (note.type === "folder" && isExcludeFolderName(note.filename)) return true;
     if (!note.folderPath) return false;
     return note.folderPath.split(" / ").some(isExcludeFolderName);
+  }
+
+  // The independent, folder-location "Notes" filter (added 2026-08-01,
+  // work order 2026-08-01-1) — separate from the five-category Filters row
+  // above, and combined with it (and with the tag filter and search) via
+  // AND rather than being one more mutually-exclusive type. A note counts
+  // as a Note if "0000-02 Notes" (case-insensitive) appears anywhere in its
+  // folderPath breadcrumb, at any depth, confirmed against Ron's real
+  // OneDrive tree where every tracked top-level folder has exactly one
+  // subfolder with that exact name. Unlike isExcludedNote above, this
+  // deliberately does NOT also match a folder-note whose own filename is
+  // "0000-02 Notes" — Ron confirmed 2026-08-01 that the folder-note
+  // representing the folder itself should never appear under this filter,
+  // only the real files inside it. That folder-note still shows up under
+  // the existing "Folders" type category, unaffected by this rule.
+  var NOTES_FOLDER_NAME = "0000-02 notes";
+
+  function isNotesFolderName(name) {
+    return !!name && name.toLowerCase() === NOTES_FOLDER_NAME;
+  }
+
+  function isInNotesFolderNote(note) {
+    return !!note.folderPath && note.folderPath.split(" / ").some(isNotesFolderName);
   }
 
   function makeNote(item, tag, acctCfg) {
@@ -1969,6 +1996,7 @@
     renderAccountSelect();
     renderTagSidebar();
     renderTypeSidebar();
+    renderNotesFilter();
     renderSortControl();
     renderNoteList();
   }
@@ -2019,14 +2047,15 @@
       if (searchState.tag && !visibleTags[searchState.tag]) searchState.tag = null;
     }
 
-    // Counts reflect the current filename search and file-type filter, not
-    // the tag's total note count, so a tag showing "40" while filtered
-    // means 40 of its notes match what's typed/selected, not that it has 40
-    // notes overall.
+    // Counts reflect the current filename search, file-type filter, and
+    // Notes filter, not the tag's total note count, so a tag showing "40"
+    // while filtered means 40 of its notes match what's typed/selected, not
+    // that it has 40 notes overall.
     var counts = {};
     acctData.notes.forEach(function (n) {
       if (!matchesSearchWords(n.filename, words)) return;
       if (searchState.fileType && noteFileType(n) !== searchState.fileType) return;
+      if (searchState.notesOnly && !isInNotesFolderNote(n)) return;
       counts[n.tag] = (counts[n.tag] || 0) + 1;
     });
 
@@ -2046,17 +2075,18 @@
           searchState.tag = (searchState.tag === t) ? null : t;
           renderTagSidebar();
           renderTypeSidebar();
+          renderNotesFilter();
           renderNoteList();
         });
         el.tagList.appendChild(row);
       });
   }
 
-  // File-type column — fixed at the bottom of the sidebar, below the
-  // scrolling tag list. Always renders all five categories, even at a
-  // count of 0, matching the tag list's own zero-count precedent (e.g. a
-  // tag can already show "0" today). Same click-to-filter,
-  // click-again-to-clear interaction as the tag list.
+  // File-type column ("Filters" in the sidebar) — fixed at the bottom of
+  // the tag section, below the scrolling tag list. Always renders all five
+  // categories, even at a count of 0, matching the tag list's own
+  // zero-count precedent (e.g. a tag can already show "0" today). Same
+  // click-to-filter, click-again-to-clear interaction as the tag list.
   function renderTypeSidebar() {
     var acctData = activeAccountData();
     el.typeList.innerHTML = "";
@@ -2067,6 +2097,7 @@
       acctData.notes.forEach(function (n) {
         if (!matchesSearchWords(n.filename, words)) return;
         if (searchState.tag && n.tag !== searchState.tag) return;
+        if (searchState.notesOnly && !isInNotesFolderNote(n)) return;
         var type = noteFileType(n);
         if (!type) return;
         counts[type] = (counts[type] || 0) + 1;
@@ -2085,10 +2116,50 @@
         searchState.fileType = (searchState.fileType === type) ? null : type;
         renderTagSidebar();
         renderTypeSidebar();
+        renderNotesFilter();
         renderNoteList();
       });
       el.typeList.appendChild(row);
     });
+  }
+
+  // Notes column — a single independent toggle, separate from the Filters
+  // row above rather than a sixth member of it: it combines with the tag
+  // filter, the type filter, and the filename search via AND, the same way
+  // those three already combine with each other, so "Notes + Images" shows
+  // only images sitting inside a "0000-02 Notes" folder. Same
+  // click-to-filter, click-again-to-clear interaction and live count as
+  // the tag and type rows.
+  function renderNotesFilter() {
+    var acctData = activeAccountData();
+    el.notesFilterList.innerHTML = "";
+
+    var words = searchWords();
+    var count = 0;
+    if (acctData) {
+      acctData.notes.forEach(function (n) {
+        if (!matchesSearchWords(n.filename, words)) return;
+        if (searchState.tag && n.tag !== searchState.tag) return;
+        if (searchState.fileType && noteFileType(n) !== searchState.fileType) return;
+        if (isInNotesFolderNote(n)) count++;
+      });
+    }
+
+    var row = document.createElement("div");
+    row.className = "tag-sidebar-item" + (searchState.notesOnly ? " active" : "");
+    row.appendChild(document.createTextNode("Notes"));
+    var countSpan = document.createElement("span");
+    countSpan.className = "tag-count";
+    countSpan.textContent = count;
+    row.appendChild(countSpan);
+    row.addEventListener("click", function () {
+      searchState.notesOnly = !searchState.notesOnly;
+      renderTagSidebar();
+      renderTypeSidebar();
+      renderNotesFilter();
+      renderNoteList();
+    });
+    el.notesFilterList.appendChild(row);
   }
 
   function renderNoteList() {
@@ -2108,12 +2179,13 @@
       return;
     }
     var words = searchWords();
-    var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType;
+    var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType && !searchState.notesOnly;
     var notes = noFilterActive ? [] : acctData.notes.filter(function (n) {
       var matchesText = matchesSearchWords(n.filename, words);
       var matchesTag = !searchState.tag || n.tag === searchState.tag;
       var matchesType = !searchState.fileType || noteFileType(n) === searchState.fileType;
-      return matchesText && matchesTag && matchesType;
+      var matchesNotes = !searchState.notesOnly || isInNotesFolderNote(n);
+      return matchesText && matchesTag && matchesType && matchesNotes;
     }).sort(compareNotes);
 
     renderSidebarTotal(notes.length, acctData.notes.length);
@@ -2729,6 +2801,7 @@
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
+      renderNotesFilter();
       renderNoteList();
     });
     el.searchClearBtn.addEventListener("click", function () {
@@ -2737,6 +2810,7 @@
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
+      renderNotesFilter();
       renderNoteList();
       el.searchInput.focus();
     });
@@ -2747,16 +2821,19 @@
         updateSearchClearBtn();
         renderTagSidebar();
         renderTypeSidebar();
+        renderNotesFilter();
         renderNoteList();
-      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType)) {
+      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType || searchState.notesOnly)) {
         // Third Escape in the sequence (focus search, clear text, clear
         // filters) — only reached once the search box is both focused and
-        // already empty, so there's nothing left to clear but the tag/type
-        // selection.
+        // already empty, so there's nothing left to clear but the
+        // tag/type/Notes selection.
         searchState.tag = null;
         searchState.fileType = null;
+        searchState.notesOnly = false;
         renderTagSidebar();
         renderTypeSidebar();
+        renderNotesFilter();
         renderNoteList();
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
