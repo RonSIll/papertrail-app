@@ -208,6 +208,16 @@
   .tag-list-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
   .tag-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
   .type-list-header { flex: 0 0 54px; }
+  /* Notes is now the sidebar's first section (moved to the top 2026-08-02),
+     so its header carries the same "tall header, label bottom-aligned"
+     treatment .tag-sidebar-header used to carry when Tags was first — this
+     is what makes the Notes filter row below it start level with the note
+     list's own top edge. 89.8889px measured live against the topbar's
+     actual rendered height (with the account-row visible, two accounts
+     signed in) minus the divider and .type-list's own 4px top padding.
+     Re-derive this value again if the topbar's height or the Notes
+     column's own padding/divider structure ever changes. */
+  .notes-sidebar-header { flex: 0 0 89.8889px; }
   /* Same lighter gray as .tag-list-scroll — fixed, not scrolling, but
      styled as the matching content zone for its own title/divider pair. */
   .type-list { flex: 0 0 auto; padding: 4px 0; background: #444447; }
@@ -354,7 +364,7 @@
 <body>
 <div id="app">
   <nav class="tag-sidebar" id="tagSidebar">
-    <div class="type-list-header sidebar-section-title">Notes</div>
+    <div class="type-list-header notes-sidebar-header sidebar-section-title">Notes</div>
     <div class="sidebar-divider"></div>
     <div class="type-list" id="notesFilterList"></div>
     <div class="sidebar-divider"></div>
