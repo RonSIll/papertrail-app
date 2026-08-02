@@ -208,18 +208,14 @@
   .tag-list-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
   .tag-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
   .type-list-header { flex: 0 0 54px; }
-  /* Notes is now the sidebar's first section (moved to the top 2026-08-02),
+  /* Notes is the sidebar's first section (moved to the top 2026-08-02),
      so its header carries the same "tall header, label bottom-aligned"
-     treatment .tag-sidebar-header used to carry when Tags was first — this
-     is what makes the Notes filter row below it start level with the note
-     list's own top edge. 90.6px measured live against Ron's real desktop
-     app (125% Windows display scaling, devicePixelRatio 1.25) — an
-     un-scaled test environment measured 89.8889px for the same layout,
-     since a hardcoded fractional CSS pixel value can round slightly
-     differently depending on display scaling. Re-derive this value again,
-     against a real 125%-scaled window, if the topbar's height or the
-     Notes column's own padding/divider structure ever changes. */
-  .notes-sidebar-header { flex: 0 0 90.6px; }
+     treatment .tag-sidebar-header used to carry when Tags was first. Set
+     so the Notes filter row below it (the header, plus the 1px divider,
+     plus .type-list's own 4px top padding) sits 100px from the top of the
+     sidebar — Ron's explicit request 2026-08-02, moved off the note
+     panel's exact top edge (which was ~95.6px) on purpose. */
+  .notes-sidebar-header { flex: 0 0 95px; }
   /* Same lighter gray as .tag-list-scroll — fixed, not scrolling, but
      styled as the matching content zone for its own title/divider pair. */
   .type-list { flex: 0 0 auto; padding: 4px 0; background: #444447; }
