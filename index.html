@@ -2209,18 +2209,36 @@
   // as ghPull). Deliberately not folded into ghPull/Sync — no delta token,
   // no local cache across app loads, a fresh read every time this is
   // called, per the work order's explicit call.
+  //
+  // Checks repo-level access FIRST, before the file itself, because a
+  // fine-grained GitHub token that was never granted access to a repo
+  // gets a 404 there too, deliberately indistinguishable from "repo
+  // doesn't exist" — GitHub does this on purpose so an unauthorized
+  // token can't even confirm a private repo exists. Confirmed live
+  // 2026-08-07 (Ron's PaperTrail token: 200 on its own papertrail-data,
+  // 404 on papernote-data — a real access gap, not an empty inbox). Only
+  // once the repo itself resolves does a 404 on inbox.json get treated
+  // as "genuinely no inbox file yet" rather than "can't tell."
   function fetchUntaggedEntries(cb) {
     if (!localConfig.gh || !localConfig.gh.pat) {
       cb("Add a GitHub token under Manage › Accounts & Connections to see what's waiting in PaperNote's inbox.");
       return;
     }
-    var url = "https://api.github.com/repos/" + INBOX_REPO_OWNER + "/" + INBOX_REPO_NAME + "/contents/" + INBOX_DATA_PATH;
-    fetch(url, { headers: { Authorization: "token " + localConfig.gh.pat } })
+    var repoUrl = "https://api.github.com/repos/" + INBOX_REPO_OWNER + "/" + INBOX_REPO_NAME;
+    var fileUrl = repoUrl + "/contents/" + INBOX_DATA_PATH;
+    fetch(repoUrl, { headers: { Authorization: "token " + localConfig.gh.pat } })
       .then(function (res) {
-        if (res.status === 404) return null; // inbox file doesn't exist yet — nothing waiting
-        if (res.status === 401 || res.status === 403) {
-          throw new Error("PaperTrail's GitHub token doesn't have access to PaperNote's inbox — it may need a token with broader repo access.");
+        if (res.ok) return null;
+        if (res.status === 401) {
+          throw new Error("PaperTrail's GitHub token looks invalid or expired — check it under Manage › Accounts & Connections.");
         }
+        throw new Error("PaperTrail's GitHub token doesn't have access to papernote-data — check its repository access under GitHub, or the token entered under Manage › Accounts & Connections.");
+      })
+      .then(function () {
+        return fetch(fileUrl, { headers: { Authorization: "token " + localConfig.gh.pat } });
+      })
+      .then(function (res) {
+        if (res.status === 404) return null; // repo is accessible — inbox.json genuinely doesn't exist yet, nothing waiting
         if (!res.ok) throw new Error("Couldn't reach PaperNote's inbox right now — try again in a moment.");
         return res.json();
       })
