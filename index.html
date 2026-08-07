@@ -2251,12 +2251,19 @@
   // Untagged panel is the one currently showing) the center-panel list.
   // Called once at boot (so the sidebar count is visible at a glance
   // without requiring a click) and again every time the Untagged row is
-  // clicked open.
+  // clicked open. Stale-response guard (untaggedRequestSeq/mySeq), same
+  // pattern as renderPreview's previewRequestSeq: a rapid toggle-off then
+  // back on fires a second fetch before the first has resolved, and
+  // without this the slower first response could land after the second
+  // and overwrite it with stale data.
+  var untaggedRequestSeq = 0;
   function loadUntaggedList() {
+    var mySeq = ++untaggedRequestSeq;
     untaggedState.loading = true;
     untaggedState.error = null;
     if (untaggedState.active) renderUntaggedList();
     fetchUntaggedEntries(function (err, entries) {
+      if (mySeq !== untaggedRequestSeq) return; // superseded by a newer request
       untaggedState.loading = false;
       if (err) { untaggedState.error = err; }
       else { untaggedState.entries = entries; untaggedState.error = null; }
