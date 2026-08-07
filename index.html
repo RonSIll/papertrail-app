@@ -2194,8 +2194,8 @@
   // now calls this once instead.
   function renderNotesGroup() {
     el.notesFilterList.innerHTML = "";
-    el.notesFilterList.appendChild(buildNotesRow());
     el.notesFilterList.appendChild(buildUntaggedRow());
+    el.notesFilterList.appendChild(buildNotesRow());
   }
 
   // =========================================================================
