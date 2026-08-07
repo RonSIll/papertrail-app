@@ -374,10 +374,6 @@
     <div class="sidebar-divider"></div>
     <div class="type-list" id="typeList"></div>
     <div class="sidebar-divider"></div>
-    <div class="type-list-header sidebar-section-title">Untagged</div>
-    <div class="sidebar-divider"></div>
-    <div class="type-list" id="untaggedList"></div>
-    <div class="sidebar-divider"></div>
     <div class="type-list-footer" id="sidebarTotal"></div>
   </nav>
   <div class="main-column">
@@ -704,7 +700,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountRow","accountSelect","accountSelectLabel","searchInput","searchClearBtn","content","contentRight","tagList","typeList","notesFilterList","untaggedList","sidebarTotal","globalStatusMsg",
+      "accountRow","accountSelect","accountSelectLabel","searchInput","searchClearBtn","content","contentRight","tagList","typeList","notesFilterList","sidebarTotal","globalStatusMsg",
       "sortArrowBtn","sortCycleBtn",
       "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
@@ -2026,8 +2022,7 @@
     renderAccountSelect();
     renderTagSidebar();
     renderTypeSidebar();
-    renderNotesFilter();
-    renderUntaggedFilter();
+    renderNotesGroup();
     renderSortControl();
     renderMainList();
   }
@@ -2107,8 +2102,7 @@
           untaggedState.active = false;
           renderTagSidebar();
           renderTypeSidebar();
-          renderNotesFilter();
-          renderUntaggedFilter();
+          renderNotesGroup();
           renderMainList();
         });
         el.tagList.appendChild(row);
@@ -2150,25 +2144,22 @@
         untaggedState.active = false;
         renderTagSidebar();
         renderTypeSidebar();
-        renderNotesFilter();
-        renderUntaggedFilter();
+        renderNotesGroup();
         renderMainList();
       });
       el.typeList.appendChild(row);
     });
   }
 
-  // Notes column — a single independent toggle, separate from the Filters
-  // row rather than a sixth member of it: it combines with the tag
-  // filter, the type filter, and the filename search via AND, the same way
-  // those three already combine with each other, so "Notes + Images" shows
-  // only images sitting inside a "0000-02 Notes" folder. Same
-  // click-to-filter, click-again-to-clear interaction and live count as
-  // the tag and type rows.
-  function renderNotesFilter() {
+  // Notes + Untagged group — the sidebar's first section, two independent
+  // toggles sharing one header/list container. Both combine with the tag
+  // filter, the type filter, and the filename search via AND EXCEPT
+  // Untagged, which is mutually exclusive with everything else (see
+  // buildUntaggedRow below) — same click-to-filter, click-again-to-clear
+  // interaction and live count either way. Rebuilt together by
+  // renderNotesGroup() since they share one DOM container.
+  function buildNotesRow() {
     var acctData = activeAccountData();
-    el.notesFilterList.innerHTML = "";
-
     var words = searchWords();
     var count = 0;
     if (acctData) {
@@ -2192,11 +2183,19 @@
       untaggedState.active = false;
       renderTagSidebar();
       renderTypeSidebar();
-      renderNotesFilter();
-      renderUntaggedFilter();
+      renderNotesGroup();
       renderMainList();
     });
-    el.notesFilterList.appendChild(row);
+    return row;
+  }
+
+  // Renders the shared Notes + Untagged container. Every call site that
+  // used to call renderNotesFilter() and renderUntaggedFilter() separately
+  // now calls this once instead.
+  function renderNotesGroup() {
+    el.notesFilterList.innerHTML = "";
+    el.notesFilterList.appendChild(buildNotesRow());
+    el.notesFilterList.appendChild(buildUntaggedRow());
   }
 
   // =========================================================================
@@ -2267,19 +2266,18 @@
       untaggedState.loading = false;
       if (err) { untaggedState.error = err; }
       else { untaggedState.entries = entries; untaggedState.error = null; }
-      renderUntaggedFilter();
+      renderNotesGroup();
       if (untaggedState.active) renderUntaggedList();
     });
   }
 
-  // Sidebar row — a single independent toggle, same tag-sidebar-item/
-  // tag-count styling as the Tags/Filters/Notes rows above it, but
-  // mutually EXCLUSIVE with them rather than AND-combined: turning
+  // Second row in the same Notes group container — same tag-sidebar-item/
+  // tag-count styling as the Notes row next to it, but mutually EXCLUSIVE
+  // with the tag/type/Notes filters rather than AND-combined: turning
   // Untagged on clears any active tag/type/Notes selection and swaps the
   // center panel to the inbox list; turning it off (or picking a
   // tag/type/Notes filter) returns to the normal note list.
-  function renderUntaggedFilter() {
-    el.untaggedList.innerHTML = "";
+  function buildUntaggedRow() {
     var row = document.createElement("div");
     row.className = "tag-sidebar-item" + (untaggedState.active ? " active" : "");
     row.appendChild(document.createTextNode("Untagged"));
@@ -2296,12 +2294,11 @@
       }
       renderTagSidebar();
       renderTypeSidebar();
-      renderNotesFilter();
-      renderUntaggedFilter();
+      renderNotesGroup();
       if (untaggedState.active) loadUntaggedList();
       else renderMainList();
     });
-    el.untaggedList.appendChild(row);
+    return row;
   }
 
   function renderUntaggedList() {
@@ -3023,8 +3020,7 @@
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
-      renderNotesFilter();
-      renderUntaggedFilter();
+      renderNotesGroup();
       renderMainList();
     });
     el.searchClearBtn.addEventListener("click", function () {
@@ -3034,8 +3030,7 @@
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
-      renderNotesFilter();
-      renderUntaggedFilter();
+      renderNotesGroup();
       renderMainList();
       el.searchInput.focus();
     });
@@ -3047,8 +3042,7 @@
         updateSearchClearBtn();
         renderTagSidebar();
         renderTypeSidebar();
-        renderNotesFilter();
-        renderUntaggedFilter();
+        renderNotesGroup();
         renderMainList();
       } else if (e.key === "Escape" && (searchState.tag || searchState.fileType || searchState.notesOnly || untaggedState.active)) {
         // Third Escape in the sequence (focus search, clear text, clear
@@ -3061,8 +3055,7 @@
         untaggedState.active = false;
         renderTagSidebar();
         renderTypeSidebar();
-        renderNotesFilter();
-        renderUntaggedFilter();
+        renderNotesGroup();
         renderMainList();
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
