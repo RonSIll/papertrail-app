@@ -374,6 +374,10 @@
     <div class="sidebar-divider"></div>
     <div class="type-list" id="typeList"></div>
     <div class="sidebar-divider"></div>
+    <div class="type-list-header sidebar-section-title">Untagged</div>
+    <div class="sidebar-divider"></div>
+    <div class="type-list" id="untaggedList"></div>
+    <div class="sidebar-divider"></div>
     <div class="type-list-footer" id="sidebarTotal"></div>
   </nav>
   <div class="main-column">
@@ -510,6 +514,16 @@
   var DATA_KEY = "paperTrailData"; // local cache of the synced JSON
   var DATA_PATH = "data.json";
 
+  // PaperNote's shared capture inbox (work order 2026-08-07-1) — a second,
+  // fixed private repo PaperTrail only ever reads, never writes. Reuses
+  // localConfig.gh.pat rather than a separate token: a classic PAT with the
+  // "repo" scope covers every private repo Ron owns, so his existing
+  // PaperTrail token is expected to already work here with no new token
+  // entry needed.
+  var INBOX_REPO_OWNER = "RonSIll";
+  var INBOX_REPO_NAME = "papernote-data";
+  var INBOX_DATA_PATH = "inbox.json";
+
   // Fixed per-account tag-source roots and Graph drive endpoints, keyed by
   // account key (see ACCOUNT_KEY_ORDER below for how a newly-added account
   // gets assigned one of these keys). Personal's driveBaseUrl is a fixed
@@ -581,6 +595,15 @@
   var msalApp = null;
   var msalInitPromise = null;
   var searchState = { text: "", tag: null, fileType: null, notesOnly: false };
+
+  // Untagged (PaperNote inbox) view — deliberately separate from
+  // searchState rather than a fourth AND-combined filter: selecting it
+  // swaps the whole center panel to a different data source (GitHub inbox
+  // entries, not OneDrive notes) and is mutually exclusive with the
+  // tag/type/Notes filters, not combined with them. entries/error are the
+  // result of the last completed fetch (never persisted — a fresh session
+  // starts with entries:null until the first fetch lands).
+  var untaggedState = { active: false, loading: false, entries: null, error: null };
 
   // Note-list display order — separate from searchState since it doesn't
   // filter anything, just orders the results. Resets to the default
@@ -681,7 +704,7 @@
   var el = {};
   function cacheEls() {
     [
-      "accountRow","accountSelect","accountSelectLabel","searchInput","searchClearBtn","content","contentRight","tagList","typeList","notesFilterList","sidebarTotal","globalStatusMsg",
+      "accountRow","accountSelect","accountSelectLabel","searchInput","searchClearBtn","content","contentRight","tagList","typeList","notesFilterList","untaggedList","sidebarTotal","globalStatusMsg",
       "sortArrowBtn","sortCycleBtn",
       "syncBtn","manageBtn","backdrop","lastSyncedLabel",
       "settingsHomeSheet","settingsHomeClose",
@@ -2004,8 +2027,9 @@
     renderTagSidebar();
     renderTypeSidebar();
     renderNotesFilter();
+    renderUntaggedFilter();
     renderSortControl();
-    renderNoteList();
+    renderMainList();
   }
 
   function renderAccountSelect() {
@@ -2080,10 +2104,12 @@
         row.appendChild(countSpan);
         row.addEventListener("click", function () {
           searchState.tag = (searchState.tag === t) ? null : t;
+          untaggedState.active = false;
           renderTagSidebar();
           renderTypeSidebar();
           renderNotesFilter();
-          renderNoteList();
+          renderUntaggedFilter();
+          renderMainList();
         });
         el.tagList.appendChild(row);
       });
@@ -2121,10 +2147,12 @@
       row.appendChild(countSpan);
       row.addEventListener("click", function () {
         searchState.fileType = (searchState.fileType === type) ? null : type;
+        untaggedState.active = false;
         renderTagSidebar();
         renderTypeSidebar();
         renderNotesFilter();
-        renderNoteList();
+        renderUntaggedFilter();
+        renderMainList();
       });
       el.typeList.appendChild(row);
     });
@@ -2161,12 +2189,191 @@
     row.appendChild(countSpan);
     row.addEventListener("click", function () {
       searchState.notesOnly = !searchState.notesOnly;
+      untaggedState.active = false;
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesFilter();
-      renderNoteList();
+      renderUntaggedFilter();
+      renderMainList();
     });
     el.notesFilterList.appendChild(row);
+  }
+
+  // =========================================================================
+  // Untagged (PaperNote inbox) — work order 2026-08-07-1. Purely a
+  // read-only display: no rename/tag/file/discard action anywhere here.
+  // Filing still happens exclusively in PaperFile, PC only.
+  // =========================================================================
+
+  // Live GET against papernote-data/inbox.json (Contents API, falling back
+  // to the Git Blobs API past the ~1MB inline-content ceiling, same pattern
+  // as ghPull). Deliberately not folded into ghPull/Sync — no delta token,
+  // no local cache across app loads, a fresh read every time this is
+  // called, per the work order's explicit call.
+  function fetchUntaggedEntries(cb) {
+    if (!localConfig.gh || !localConfig.gh.pat) {
+      cb("Add a GitHub token under Manage › Accounts & Connections to see what's waiting in PaperNote's inbox.");
+      return;
+    }
+    var url = "https://api.github.com/repos/" + INBOX_REPO_OWNER + "/" + INBOX_REPO_NAME + "/contents/" + INBOX_DATA_PATH;
+    fetch(url, { headers: { Authorization: "token " + localConfig.gh.pat } })
+      .then(function (res) {
+        if (res.status === 404) return null; // inbox file doesn't exist yet — nothing waiting
+        if (res.status === 401 || res.status === 403) {
+          throw new Error("PaperTrail's GitHub token doesn't have access to PaperNote's inbox — it may need a token with broader repo access.");
+        }
+        if (!res.ok) throw new Error("Couldn't reach PaperNote's inbox right now — try again in a moment.");
+        return res.json();
+      })
+      .then(function (json) {
+        if (!json) return null;
+        if (json.content) return b64decode(json.content.replace(/\n/g, ""));
+        var blobUrl = "https://api.github.com/repos/" + INBOX_REPO_OWNER + "/" + INBOX_REPO_NAME + "/git/blobs/" + json.sha;
+        return fetch(blobUrl, { headers: { Authorization: "token " + localConfig.gh.pat } })
+          .then(function (res2) {
+            if (!res2.ok) throw new Error("Couldn't reach PaperNote's inbox right now — try again in a moment.");
+            return res2.json();
+          })
+          .then(function (blob) { return b64decode(blob.content.replace(/\n/g, "")); });
+      })
+      .then(function (raw) {
+        if (!raw) { cb(null, []); return; }
+        var parsed = JSON.parse(raw);
+        var entries = (parsed && Array.isArray(parsed.entries)) ? parsed.entries : [];
+        cb(null, entries);
+      })
+      .catch(function (err) {
+        cb(err && err.message ? err.message : "Couldn't reach PaperNote's inbox right now — try again in a moment.");
+      });
+  }
+
+  // Kicks off a fresh fetch and updates both the sidebar count and (if the
+  // Untagged panel is the one currently showing) the center-panel list.
+  // Called once at boot (so the sidebar count is visible at a glance
+  // without requiring a click) and again every time the Untagged row is
+  // clicked open.
+  function loadUntaggedList() {
+    untaggedState.loading = true;
+    untaggedState.error = null;
+    if (untaggedState.active) renderUntaggedList();
+    fetchUntaggedEntries(function (err, entries) {
+      untaggedState.loading = false;
+      if (err) { untaggedState.error = err; }
+      else { untaggedState.entries = entries; untaggedState.error = null; }
+      renderUntaggedFilter();
+      if (untaggedState.active) renderUntaggedList();
+    });
+  }
+
+  // Sidebar row — a single independent toggle, same tag-sidebar-item/
+  // tag-count styling as the Tags/Filters/Notes rows above it, but
+  // mutually EXCLUSIVE with them rather than AND-combined: turning
+  // Untagged on clears any active tag/type/Notes selection and swaps the
+  // center panel to the inbox list; turning it off (or picking a
+  // tag/type/Notes filter) returns to the normal note list.
+  function renderUntaggedFilter() {
+    el.untaggedList.innerHTML = "";
+    var row = document.createElement("div");
+    row.className = "tag-sidebar-item" + (untaggedState.active ? " active" : "");
+    row.appendChild(document.createTextNode("Untagged"));
+    var countSpan = document.createElement("span");
+    countSpan.className = "tag-count";
+    countSpan.textContent = untaggedState.entries ? untaggedState.entries.length : "";
+    row.appendChild(countSpan);
+    row.addEventListener("click", function () {
+      untaggedState.active = !untaggedState.active;
+      if (untaggedState.active) {
+        searchState.tag = null;
+        searchState.fileType = null;
+        searchState.notesOnly = false;
+      }
+      renderTagSidebar();
+      renderTypeSidebar();
+      renderNotesFilter();
+      renderUntaggedFilter();
+      if (untaggedState.active) loadUntaggedList();
+      else renderMainList();
+    });
+    el.untaggedList.appendChild(row);
+  }
+
+  function renderUntaggedList() {
+    el.content.innerHTML = "";
+    selectedCardEl = null;
+    selectedIndex = -1;
+    pillFocus = null;
+    visibleNotes = [];
+    renderPreview(null);
+
+    if (untaggedState.loading) {
+      var loading = document.createElement("div");
+      loading.className = "empty-state";
+      loading.textContent = "Checking PaperNote's inbox…";
+      el.content.appendChild(loading);
+      el.sidebarTotal.textContent = "";
+      return;
+    }
+    if (untaggedState.error) {
+      var errEl = document.createElement("div");
+      errEl.className = "empty-state";
+      errEl.textContent = untaggedState.error;
+      el.content.appendChild(errEl);
+      el.sidebarTotal.textContent = "";
+      return;
+    }
+    var entries = untaggedState.entries || [];
+    el.sidebarTotal.textContent = entries.length === 0 ? "" : entries.length + " waiting in the inbox";
+    if (entries.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Nothing waiting in PaperNote's inbox.";
+      el.content.appendChild(empty);
+      return;
+    }
+    entries.forEach(function (entry) { el.content.appendChild(renderUntaggedRow(entry)); });
+  }
+
+  // No thumbnail and no click-to-preview in this first version (deliberate
+  // scope cut per the work order) — just filename, type badge, and
+  // captured date, matching the fields the work order calls for.
+  function renderUntaggedRow(entry) {
+    var row = document.createElement("div");
+    row.className = "note-row";
+
+    var card = document.createElement("div");
+    card.className = "note-card";
+    card.style.cursor = "default";
+
+    var filename = document.createElement("div");
+    filename.className = "note-filename";
+    filename.textContent = entry.filename || "(untitled)";
+    card.appendChild(filename);
+
+    var metaRow = document.createElement("div");
+    metaRow.className = "note-meta-row";
+    var typeChip = document.createElement("span");
+    typeChip.className = "note-type-chip";
+    typeChip.textContent = entry.type === "photo" ? "Photo" : entry.type === "document" ? "Document" : "Text";
+    metaRow.appendChild(typeChip);
+    card.appendChild(metaRow);
+
+    var captured = document.createElement("div");
+    captured.className = "note-modified";
+    captured.textContent = entry.capturedAt ? ("Captured: " + formatMDY(entry.capturedAt)) : "";
+    card.appendChild(captured);
+
+    row.appendChild(card);
+    return row;
+  }
+
+  // Dispatches to whichever center-panel view is currently active — the
+  // normal OneDrive note list, or the Untagged inbox list. Every call site
+  // that used to call renderNoteList() directly now goes through this, so
+  // an in-progress Untagged view survives an unrelated Sync/sort/search
+  // change instead of silently reverting to the note list.
+  function renderMainList() {
+    if (untaggedState.active) renderUntaggedList();
+    else renderNoteList();
   }
 
   function renderNoteList() {
@@ -2805,43 +3012,51 @@
 
     el.searchInput.addEventListener("input", function () {
       searchState.text = el.searchInput.value;
+      untaggedState.active = false;
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesFilter();
-      renderNoteList();
+      renderUntaggedFilter();
+      renderMainList();
     });
     el.searchClearBtn.addEventListener("click", function () {
       el.searchInput.value = "";
       searchState.text = "";
+      untaggedState.active = false;
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesFilter();
-      renderNoteList();
+      renderUntaggedFilter();
+      renderMainList();
       el.searchInput.focus();
     });
     el.searchInput.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && el.searchInput.value) {
         el.searchInput.value = "";
         searchState.text = "";
+        untaggedState.active = false;
         updateSearchClearBtn();
         renderTagSidebar();
         renderTypeSidebar();
         renderNotesFilter();
-        renderNoteList();
-      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType || searchState.notesOnly)) {
+        renderUntaggedFilter();
+        renderMainList();
+      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType || searchState.notesOnly || untaggedState.active)) {
         // Third Escape in the sequence (focus search, clear text, clear
         // filters) — only reached once the search box is both focused and
         // already empty, so there's nothing left to clear but the
-        // tag/type/Notes selection.
+        // tag/type/Notes/Untagged selection.
         searchState.tag = null;
         searchState.fileType = null;
         searchState.notesOnly = false;
+        untaggedState.active = false;
         renderTagSidebar();
         renderTypeSidebar();
         renderNotesFilter();
-        renderNoteList();
+        renderUntaggedFilter();
+        renderMainList();
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
         // starting at the top card regardless of any prior selection.
@@ -2937,7 +3152,7 @@
     el.sortArrowBtn.addEventListener("click", function () {
       sortState.ascending = !sortState.ascending;
       renderSortControl();
-      renderNoteList();
+      renderMainList();
     });
     el.sortCycleBtn.addEventListener("click", function (e) {
       var word = e.target.closest(".sort-word");
@@ -2950,7 +3165,7 @@
         sortState.ascending = SORT_MODE_DEFAULT_ASCENDING[mode];
       }
       renderSortControl();
-      renderNoteList();
+      renderMainList();
     });
 
     el.syncBtn.addEventListener("click", function () { runSync(); });
@@ -3001,10 +3216,11 @@
     initMsal();
     renderLastSynced();
     if (localConfig.gh) {
-      ghPull(function () { render(); maybeAutoSync(); });
+      ghPull(function () { render(); maybeAutoSync(); loadUntaggedList(); });
     } else {
       render();
       maybeAutoSync();
+      loadUntaggedList();
     }
   }
 
