@@ -2192,9 +2192,22 @@
   // Renders the shared Notes + Untagged container. Every call site that
   // used to call renderNotesFilter() and renderUntaggedFilter() separately
   // now calls this once instead.
+  //
+  // Untagged is Personal-account-only, not just by accident but because
+  // PaperFile (the app that actually files an Untagged entry) hardcodes
+  // Graph calls against /me/drive — it has no KellyVend equivalent today,
+  // so an Untagged entry can only ever be filed into Personal's OneDrive.
+  // Hide the row entirely on any other account rather than show a feed
+  // that isn't meaningfully scoped to what's on screen, and force the
+  // toggle off so a stale "active" state can never get stuck with no
+  // visible row left to click it off (Knoxx review finding, 2026-08-07).
   function renderNotesGroup() {
     el.notesFilterList.innerHTML = "";
-    el.notesFilterList.appendChild(buildUntaggedRow());
+    if (localConfig.activeAccountKey === "personal") {
+      el.notesFilterList.appendChild(buildUntaggedRow());
+    } else {
+      untaggedState.active = false;
+    }
     el.notesFilterList.appendChild(buildNotesRow());
   }
 
@@ -2275,6 +2288,15 @@
   // and overwrite it with stale data.
   var untaggedRequestSeq = 0;
   function loadUntaggedList() {
+    if (localConfig.activeAccountKey !== "personal") {
+      // Nothing to fetch on a non-Personal account (see renderNotesGroup)
+      // — clear any stale Personal-account data left over from before an
+      // account switch rather than let it linger unused in memory.
+      untaggedState.entries = null;
+      untaggedState.error = null;
+      untaggedState.loading = false;
+      return;
+    }
     var mySeq = ++untaggedRequestSeq;
     untaggedState.loading = true;
     untaggedState.error = null;
@@ -3030,6 +3052,7 @@
       localConfig.activeAccountKey = el.accountSelect.value;
       saveLocalConfig();
       render();
+      loadUntaggedList();
     });
 
     el.searchInput.addEventListener("input", function () {
