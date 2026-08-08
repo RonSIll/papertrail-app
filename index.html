@@ -622,6 +622,20 @@
     return mult * (new Date(a[field] || 0) - new Date(b[field] || 0));
   }
 
+  // Untagged (PaperNote inbox) entries have no modifiedAt — capturedAt is
+  // the only date they carry, so Modified sort falls back to it the same
+  // way Added sort already uses it (Ron's call, 2026-08-08). Kept as a
+  // separate comparator rather than branching compareNotes, since real
+  // notes should still show a genuinely empty Modified value as epoch-0,
+  // not silently borrow capturedAt the way Untagged entries now do.
+  function compareUntagged(a, b) {
+    var mult = sortState.ascending ? 1 : -1;
+    if (sortState.mode === "name") {
+      return mult * a.filename.localeCompare(b.filename, undefined, { sensitivity: "base" });
+    }
+    return mult * (new Date(a.capturedAt || 0) - new Date(b.capturedAt || 0));
+  }
+
   // Splits the search box text into words on whitespace, lowercased, empty
   // tokens dropped. A note matches only if every word is found somewhere in
   // its filename (AND, any order) — so "toy receipt" matches "receipt
@@ -2544,11 +2558,14 @@
   // The single center-panel list, real notes and Untagged entries both —
   // reworked 2026-08-07 so Untagged is revealed by search/filters exactly
   // the way tagged notes already are, no separate view or click to switch
-  // into it first. Untagged entries are appended after the sorted note
-  // list rather than interleaved into one shared sort order: they don't
-  // carry the same fields (no driveItemId/tag/modifiedAt), so building one
-  // comparator that treats both shapes correctly wasn't worth it for what
-  // this needed to accomplish. Keyboard Up/Down/Enter navigation
+  // into it first. Untagged entries are sorted with their own comparator
+  // (compareUntagged) and appended after the sorted note list rather than
+  // interleaved into one shared sort order (Ron's call, 2026-08-08): they
+  // don't carry the same fields (no driveItemId/tag/modifiedAt), so
+  // building one comparator that treats both shapes correctly wasn't worth
+  // it for what this needed to accomplish — the Sort control still applies
+  // to Untagged's own block, just not merged across both blocks. Keyboard
+  // Up/Down/Enter navigation
   // (visibleNotes/selectedIndex) still only addresses real notes — Untagged
   // cards stay mouse-click-only via selectedUntaggedCardEl, same as
   // before, since Enter/Open assume note-shaped objects (driveItemId,
@@ -2573,7 +2590,7 @@
     var words = searchWords();
     var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType && !searchState.notesOnly && !searchState.untaggedOnly;
     var notes = noFilterActive ? [] : acctData.notes.filter(function (n) { return noteMatchesFilters(n, words); }).sort(compareNotes);
-    var untagged = noFilterActive ? [] : untaggedEntriesMatchingSearch();
+    var untagged = noFilterActive ? [] : untaggedEntriesMatchingSearch().sort(compareUntagged);
 
     var totalKnown = acctData.notes.length + (untaggedState.entries ? untaggedState.entries.length : 0);
     renderSidebarTotal(notes.length + untagged.length, totalKnown);
