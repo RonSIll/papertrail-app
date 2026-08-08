@@ -685,6 +685,18 @@
   var selectedCardEl = null; // currently selected note-card in the center panel, drives the right-panel preview
   var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
   var visibleNotes = []; // the currently filtered/sorted note list, in the same order as the rendered cards
+  // Untagged has its own separate selection state rather than reusing
+  // selectedCardEl/selectedIndex/visibleNotes above — those three are
+  // tightly coupled to the Up/Down/Enter keyboard navigation for real
+  // notes, and entries here aren't notes (no driveItemId, no tag, no
+  // folderPath), so mixing them in risked breaking that navigation for no
+  // real benefit. Click-to-select only for entries, no keyboard nav, matching
+  // what was actually asked for. Shares previewRequestSeq above with the
+  // regular note preview, since only one of the two panels is ever showing
+  // at a time (see renderMainList) and a stale response from either should
+  // still be superseded by whichever selection happened more recently.
+  var selectedUntaggedCardEl = null;
+  var untaggedBlobCache = {}; // entry.id -> data: URL, in-memory only, never persisted
   var selectedIndex = -1; // index into visibleNotes of the selected card, -1 for none
   // Left/Right on a selected note card cycle a keyboard-only "which action
   // would Enter trigger" focus, independent of the card's own (always-on)
@@ -2347,7 +2359,8 @@
     selectedIndex = -1;
     pillFocus = null;
     visibleNotes = [];
-    renderPreview(null);
+    selectedUntaggedCardEl = null;
+    renderUntaggedPreview(null);
 
     if (untaggedState.loading) {
       var loading = document.createElement("div");
@@ -2377,16 +2390,16 @@
     entries.forEach(function (entry) { el.content.appendChild(renderUntaggedRow(entry)); });
   }
 
-  // No thumbnail and no click-to-preview in this first version (deliberate
-  // scope cut per the work order) — just filename, type badge, and
-  // captured date, matching the fields the work order calls for.
+  // Card shows filename, type badge, and captured date; clicking it selects
+  // the entry and drives the right-panel preview (renderUntaggedPreview),
+  // the same click-to-select pattern the regular note cards already use,
+  // just against a separate selection variable (selectedUntaggedCardEl).
   function renderUntaggedRow(entry) {
     var row = document.createElement("div");
     row.className = "note-row";
 
     var card = document.createElement("div");
     card.className = "note-card";
-    card.style.cursor = "default";
 
     var filename = document.createElement("div");
     filename.className = "note-filename";
@@ -2406,8 +2419,120 @@
     captured.textContent = entry.capturedAt ? ("Captured: " + formatMDY(entry.capturedAt)) : "";
     card.appendChild(captured);
 
+    card.addEventListener("click", function () {
+      if (selectedUntaggedCardEl) selectedUntaggedCardEl.classList.remove("selected");
+      card.classList.add("selected");
+      selectedUntaggedCardEl = card;
+      renderUntaggedPreview(entry);
+    });
+
     row.appendChild(card);
     return row;
+  }
+
+  // Resolves an inbox photo entry's actual bytes into a data: URL for
+  // direct <img src> use — simpler than PaperFile's own ArrayBuffer/
+  // Blob-URL approach there, which exists because PaperFile also has to
+  // re-upload those same bytes to OneDrive afterward; PaperTrail only ever
+  // displays the image, so a base64 data URL is enough on its own. Same
+  // two-step resolve PaperFile uses (Contents API for the blob's sha, then
+  // the Git Blobs API for its content, which has no ~1MB inline-content
+  // ceiling), and cached by entry id so re-selecting the same entry within
+  // a session doesn't re-fetch it.
+  function fetchUntaggedBlobDataUrl(entry) {
+    if (untaggedBlobCache[entry.id]) return Promise.resolve(untaggedBlobCache[entry.id]);
+    if (!entry.blobPath) return Promise.reject(new Error("no blob path on this entry"));
+    var headers = { Authorization: "token " + localConfig.gh.pat };
+    var contentsUrl = "https://api.github.com/repos/" + INBOX_REPO_OWNER + "/" + INBOX_REPO_NAME + "/contents/" + entry.blobPath;
+    return fetch(contentsUrl, { headers })
+      .then(function (res) {
+        if (!res.ok) throw new Error("couldn't resolve this photo's blob");
+        return res.json();
+      })
+      .then(function (meta) {
+        var blobUrl = "https://api.github.com/repos/" + INBOX_REPO_OWNER + "/" + INBOX_REPO_NAME + "/git/blobs/" + meta.sha;
+        return fetch(blobUrl, { headers });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error("couldn't fetch this photo's content");
+        return res.json();
+      })
+      .then(function (blob) {
+        var dataUrl = "data:" + (entry.mimeType || "application/octet-stream") + ";base64," + blob.content.replace(/\n/g, "");
+        untaggedBlobCache[entry.id] = dataUrl;
+        return dataUrl;
+      });
+  }
+
+  // Right-panel preview for an Untagged (PaperNote inbox) entry — a sibling
+  // to renderPreview(note) rather than a branch inside it, since entries
+  // aren't note-shaped (no driveItemId, no tag, no folderPath) and don't
+  // need any of that function's OneDrive-specific branching (Open/File
+  // Location pills, .url/.lnk resolution, folder contents). Shares
+  // el.contentRight and previewRequestSeq with renderPreview so a stale
+  // fetch from either preview path is superseded correctly regardless of
+  // which one the user selected more recently.
+  function renderUntaggedPreview(entry) {
+    el.contentRight.innerHTML = "";
+    if (!entry) {
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Select an entry to preview.";
+      el.contentRight.appendChild(empty);
+      return;
+    }
+
+    var mySeq = ++previewRequestSeq;
+
+    var wrap = document.createElement("div");
+    wrap.className = "preview-content";
+
+    var filename = document.createElement("div");
+    filename.className = "preview-filename";
+    filename.textContent = entry.filename;
+    wrap.appendChild(filename);
+
+    var metaRow = document.createElement("div");
+    metaRow.className = "note-meta-row";
+    var typeChip = document.createElement("span");
+    typeChip.className = "note-type-chip";
+    typeChip.textContent = entry.type === "photo" ? "Photo" : entry.type === "document" ? "Document" : "Text";
+    metaRow.appendChild(typeChip);
+    wrap.appendChild(metaRow);
+
+    var thumbSlot = document.createElement("div");
+    thumbSlot.className = "preview-thumb-slot";
+    wrap.appendChild(thumbSlot);
+
+    el.contentRight.appendChild(wrap);
+
+    if (entry.type === "text") {
+      // Already in memory from the inbox fetch — no network call needed.
+      renderTextPreview(thumbSlot, entry.textContent || "");
+      return;
+    }
+
+    if (entry.type === "photo") {
+      thumbSlot.textContent = "Loading preview…";
+      fetchUntaggedBlobDataUrl(entry).then(function (dataUrl) {
+        if (mySeq !== previewRequestSeq) return; // superseded by a newer selection
+        thumbSlot.innerHTML = "";
+        var imgEl = document.createElement("img");
+        imgEl.className = "preview-thumb";
+        imgEl.src = dataUrl;
+        imgEl.alt = entry.filename;
+        thumbSlot.appendChild(imgEl);
+      }).catch(function () {
+        if (mySeq !== previewRequestSeq) return;
+        thumbSlot.textContent = "Couldn't load a preview for this photo.";
+      });
+      return;
+    }
+
+    // Legacy "document"-type entries (pre-2026-08-01) have no meaningful
+    // preview available, same limitation PaperFile already accepted for
+    // these — they keep a generic icon there too.
+    thumbSlot.textContent = "No preview available for this file type.";
   }
 
   // Dispatches to whichever center-panel view is currently active — the
