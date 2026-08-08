@@ -590,16 +590,18 @@
 
   var msalApp = null;
   var msalInitPromise = null;
-  var searchState = { text: "", tag: null, fileType: null, notesOnly: false };
+  var searchState = { text: "", tag: null, fileType: null, notesOnly: false, untaggedOnly: false };
 
-  // Untagged (PaperNote inbox) view — deliberately separate from
-  // searchState rather than a fourth AND-combined filter: selecting it
-  // swaps the whole center panel to a different data source (GitHub inbox
-  // entries, not OneDrive notes) and is mutually exclusive with the
-  // tag/type/Notes filters, not combined with them. entries/error are the
-  // result of the last completed fetch (never persisted — a fresh session
-  // starts with entries:null until the first fetch lands).
-  var untaggedState = { active: false, loading: false, entries: null, error: null };
+  // Untagged (PaperNote inbox) entries — an ordinary AND-combinable filter
+  // dimension (searchState.untaggedOnly) exactly like notesOnly, folded
+  // directly into the same note list as real notes rather than a separate
+  // mutually-exclusive view (reworked 2026-08-07, Ron's direct request:
+  // Untagged should reveal on search the same way tagged notes already do,
+  // with no click required first). entries/error reflect the last
+  // completed background fetch — loaded once at boot, on Sync, and on
+  // account switch, the same cadence real notes refresh on, not live on
+  // every click.
+  var untaggedState = { entries: null, error: null };
 
   // Note-list display order — separate from searchState since it doesn't
   // filter anything, just orders the results. Resets to the default
@@ -643,6 +645,28 @@
     if (!words.length) return true;
     var lower = filename.toLowerCase();
     return words.every(function (w) { return lower.indexOf(w) !== -1; });
+  }
+
+  // Shared filter predicate for both real notes and Untagged (PaperNote
+  // inbox) entries, so both are revealed by search/filters the same way
+  // rather than living behind two different code paths. Untagged entries
+  // are stamped _isUntagged: true when fetched (see fetchUntaggedEntries)
+  // and otherwise have no tag/folderPath at all, which is what makes most
+  // of this fall out naturally rather than needing type-specific branches:
+  // a tag filter excludes them because n.tag is undefined, notesOnly
+  // excludes them because isInNotesFolderNote safely returns false with no
+  // folderPath to check. The file-type filter (Documents/Images/etc.) is
+  // deliberately scoped to real notes only — an untagged entry's own type
+  // (photo/text/document) doesn't map onto those five extension-based
+  // categories, so type-filtering an untagged entry is explicitly excluded
+  // rather than left to an accidental extension-string coincidence.
+  function noteMatchesFilters(n, words) {
+    if (!matchesSearchWords(n.filename, words)) return false;
+    if (searchState.tag && n.tag !== searchState.tag) return false;
+    if (searchState.fileType && (n._isUntagged || noteFileType(n) !== searchState.fileType)) return false;
+    if (searchState.notesOnly && !isInNotesFolderNote(n)) return false;
+    if (searchState.untaggedOnly && !n._isUntagged) return false;
+    return true;
   }
 
   // File-type filter ("Filters" in the sidebar, renamed 2026-08-01 from
@@ -692,9 +716,10 @@
   // folderPath), so mixing them in risked breaking that navigation for no
   // real benefit. Click-to-select only for entries, no keyboard nav, matching
   // what was actually asked for. Shares previewRequestSeq above with the
-  // regular note preview, since only one of the two panels is ever showing
-  // at a time (see renderMainList) and a stale response from either should
-  // still be superseded by whichever selection happened more recently.
+  // regular note preview, since both card types can now appear in the same
+  // rendered list (renderNoteList) and a stale response from either
+  // preview path should still be superseded by whichever selection
+  // happened more recently.
   var selectedUntaggedCardEl = null;
   var untaggedBlobCache = {}; // entry.id -> data: URL, in-memory only, never persisted
   var selectedIndex = -1; // index into visibleNotes of the selected card, -1 for none
@@ -1349,6 +1374,10 @@
     }).then(function () {
       syncInProgress = false;
       el.syncBtn.disabled = false;
+      // Untagged data refreshes on the same cadence real notes do now
+      // (reworked 2026-08-07) — independent of whether the OneDrive sync
+      // above succeeded, since it's a completely separate data source.
+      loadUntaggedList();
     });
   }
 
@@ -2036,7 +2065,7 @@
     renderTypeSidebar();
     renderNotesGroup();
     renderSortControl();
-    renderMainList();
+    renderNoteList();
   }
 
   function renderAccountSelect() {
@@ -2091,6 +2120,7 @@
     // that it has 40 notes overall.
     var counts = {};
     acctData.notes.forEach(function (n) {
+      if (searchState.untaggedOnly) return; // real notes never show while Untagged-only is active
       if (!matchesSearchWords(n.filename, words)) return;
       if (searchState.fileType && noteFileType(n) !== searchState.fileType) return;
       if (searchState.notesOnly && !isInNotesFolderNote(n)) return;
@@ -2111,11 +2141,10 @@
         row.appendChild(countSpan);
         row.addEventListener("click", function () {
           searchState.tag = (searchState.tag === t) ? null : t;
-          untaggedState.active = false;
           renderTagSidebar();
           renderTypeSidebar();
           renderNotesGroup();
-          renderMainList();
+          renderNoteList();
         });
         el.tagList.appendChild(row);
       });
@@ -2134,6 +2163,7 @@
     var counts = {};
     if (acctData) {
       acctData.notes.forEach(function (n) {
+        if (searchState.untaggedOnly) return; // real notes never show while Untagged-only is active
         if (!matchesSearchWords(n.filename, words)) return;
         if (searchState.tag && n.tag !== searchState.tag) return;
         if (searchState.notesOnly && !isInNotesFolderNote(n)) return;
@@ -2153,29 +2183,31 @@
       row.appendChild(countSpan);
       row.addEventListener("click", function () {
         searchState.fileType = (searchState.fileType === type) ? null : type;
-        untaggedState.active = false;
         renderTagSidebar();
         renderTypeSidebar();
         renderNotesGroup();
-        renderMainList();
+        renderNoteList();
       });
       el.typeList.appendChild(row);
     });
   }
 
   // Notes + Untagged group — the sidebar's first section, two independent
-  // toggles sharing one header/list container. Both combine with the tag
-  // filter, the type filter, and the filename search via AND EXCEPT
-  // Untagged, which is mutually exclusive with everything else (see
-  // buildUntaggedRow below) — same click-to-filter, click-again-to-clear
-  // interaction and live count either way. Rebuilt together by
-  // renderNotesGroup() since they share one DOM container.
+  // toggles sharing one header/list container. Both are ordinary
+  // AND-combinable filters now (reworked 2026-08-07): Untagged used to be
+  // mutually exclusive with everything else, swapping the whole center
+  // panel to a different data source, but that meant a search alone never
+  // revealed a matching inbox entry the way it already reveals a matching
+  // tagged note. Same click-to-filter, click-again-to-clear interaction
+  // and live count either way. Rebuilt together by renderNotesGroup()
+  // since they share one DOM container.
   function buildNotesRow() {
     var acctData = activeAccountData();
     var words = searchWords();
     var count = 0;
     if (acctData) {
       acctData.notes.forEach(function (n) {
+        if (searchState.untaggedOnly) return; // real notes never show while Untagged-only is active
         if (!matchesSearchWords(n.filename, words)) return;
         if (searchState.tag && n.tag !== searchState.tag) return;
         if (searchState.fileType && noteFileType(n) !== searchState.fileType) return;
@@ -2192,11 +2224,10 @@
     row.appendChild(countSpan);
     row.addEventListener("click", function () {
       searchState.notesOnly = !searchState.notesOnly;
-      untaggedState.active = false;
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesGroup();
-      renderMainList();
+      renderNoteList();
     });
     return row;
   }
@@ -2218,7 +2249,7 @@
     if (localConfig.activeAccountKey === "personal") {
       el.notesFilterList.appendChild(buildUntaggedRow());
     } else {
-      untaggedState.active = false;
+      searchState.untaggedOnly = false;
     }
     el.notesFilterList.appendChild(buildNotesRow());
   }
@@ -2282,6 +2313,9 @@
         if (!raw) { cb(null, []); return; }
         var parsed = JSON.parse(raw);
         var entries = (parsed && Array.isArray(parsed.entries)) ? parsed.entries : [];
+        // Stamped so noteMatchesFilters (shared with real notes) can tell
+        // the two apart without any structural guessing.
+        entries.forEach(function (e) { e._isUntagged = true; });
         cb(null, entries);
       })
       .catch(function (err) {
@@ -2289,15 +2323,15 @@
       });
   }
 
-  // Kicks off a fresh fetch and updates both the sidebar count and (if the
-  // Untagged panel is the one currently showing) the center-panel list.
-  // Called once at boot (so the sidebar count is visible at a glance
-  // without requiring a click) and again every time the Untagged row is
-  // clicked open. Stale-response guard (untaggedRequestSeq/mySeq), same
-  // pattern as renderPreview's previewRequestSeq: a rapid toggle-off then
-  // back on fires a second fetch before the first has resolved, and
-  // without this the slower first response could land after the second
-  // and overwrite it with stale data.
+  // Refreshes Untagged data in the background — called once at boot, again
+  // after every Sync (manual or auto), and on switching to the Personal
+  // account, the same cadence real notes already refresh on. No longer a
+  // live fetch triggered by clicking the Untagged row (reworked
+  // 2026-08-07): Untagged is now an ordinary filter over data that's kept
+  // in memory like everything else, not a special always-live view.
+  // Stale-response guard (untaggedRequestSeq/mySeq), same pattern as
+  // renderPreview's previewRequestSeq, in case two refreshes overlap (e.g.
+  // Sync completing right as an account switch also triggers one).
   var untaggedRequestSeq = 0;
   function loadUntaggedList() {
     if (localConfig.activeAccountKey !== "personal") {
@@ -2306,113 +2340,54 @@
       // account switch rather than let it linger unused in memory.
       untaggedState.entries = null;
       untaggedState.error = null;
-      untaggedState.loading = false;
       return;
     }
     var mySeq = ++untaggedRequestSeq;
-    untaggedState.loading = true;
-    untaggedState.error = null;
-    if (untaggedState.active) renderUntaggedList();
     fetchUntaggedEntries(function (err, entries) {
       if (mySeq !== untaggedRequestSeq) return; // superseded by a newer request
-      untaggedState.loading = false;
-      if (err) { untaggedState.error = err; }
-      else { untaggedState.entries = entries; untaggedState.error = null; }
+      if (err) {
+        untaggedState.error = err;
+        showGlobalStatus("Untagged: " + err, "error");
+      } else {
+        untaggedState.entries = entries;
+        untaggedState.error = null;
+      }
       renderNotesGroup();
-      if (untaggedState.active) renderUntaggedList();
+      renderNoteList();
     });
   }
 
-  // Untagged entries filtered by the current filename search — reused by
-  // both the sidebar count (buildUntaggedRow) and the list itself
-  // (renderUntaggedList) so they never disagree. Typing in the search box
-  // used to unconditionally exit Untagged and search the (unrelated)
-  // Tagged note list instead, since entries weren't filterable at all —
-  // fixed 2026-08-07 after Ron found "remote" turned up nothing while
-  // looking at a literal "Tv remote.jpg" entry. Reuses the exact same
-  // searchWords()/matchesSearchWords() matching real notes already use, so
-  // quoted-phrase search works identically here too.
+  // Untagged entries matching the current search AND every other active
+  // filter (tag/type/Notes), via the same shared predicate real notes use
+  // — kept as its own helper since both the sidebar count (buildUntaggedRow)
+  // and the combined list (renderNoteList) need the identical filtered set.
   function untaggedEntriesMatchingSearch() {
     var entries = untaggedState.entries || [];
     var words = searchWords();
-    if (!words.length) return entries;
-    return entries.filter(function (e) { return matchesSearchWords(e.filename, words); });
+    return entries.filter(function (e) { return noteMatchesFilters(e, words); });
   }
 
-  // Second row in the same Notes group container — same tag-sidebar-item/
-  // tag-count styling as the Notes row next to it, but mutually EXCLUSIVE
-  // with the tag/type/Notes filters rather than AND-combined: turning
-  // Untagged on clears any active tag/type/Notes selection and swaps the
-  // center panel to the inbox list; turning it off (or picking a
-  // tag/type/Notes filter) returns to the normal note list.
+  // Second row in the same Notes group container — an ordinary
+  // AND-combinable toggle now (reworked 2026-08-07), exactly like Tagged
+  // next to it: click filters down to just Untagged entries, click again
+  // clears back to including everything. No longer clears other filters or
+  // swaps the center panel to a separate view.
   function buildUntaggedRow() {
     var row = document.createElement("div");
-    row.className = "tag-sidebar-item" + (untaggedState.active ? " active" : "");
+    row.className = "tag-sidebar-item" + (searchState.untaggedOnly ? " active" : "");
     row.appendChild(document.createTextNode("Untagged"));
     var countSpan = document.createElement("span");
     countSpan.className = "tag-count";
     countSpan.textContent = untaggedState.entries ? untaggedEntriesMatchingSearch().length : "";
     row.appendChild(countSpan);
     row.addEventListener("click", function () {
-      untaggedState.active = !untaggedState.active;
-      if (untaggedState.active) {
-        searchState.tag = null;
-        searchState.fileType = null;
-        searchState.notesOnly = false;
-      }
+      searchState.untaggedOnly = !searchState.untaggedOnly;
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesGroup();
-      if (untaggedState.active) loadUntaggedList();
-      else renderMainList();
+      renderNoteList();
     });
     return row;
-  }
-
-  function renderUntaggedList() {
-    el.content.innerHTML = "";
-    selectedCardEl = null;
-    selectedIndex = -1;
-    pillFocus = null;
-    visibleNotes = [];
-    selectedUntaggedCardEl = null;
-    renderUntaggedPreview(null);
-
-    if (untaggedState.loading) {
-      var loading = document.createElement("div");
-      loading.className = "empty-state";
-      loading.textContent = "Checking PaperNote's inbox…";
-      el.content.appendChild(loading);
-      el.sidebarTotal.textContent = "";
-      return;
-    }
-    if (untaggedState.error) {
-      var errEl = document.createElement("div");
-      errEl.className = "empty-state";
-      errEl.textContent = untaggedState.error;
-      el.content.appendChild(errEl);
-      el.sidebarTotal.textContent = "";
-      return;
-    }
-    var allEntries = untaggedState.entries || [];
-    var entries = untaggedEntriesMatchingSearch();
-    el.sidebarTotal.textContent = allEntries.length === 0 ? "" :
-      entries.length + (searchState.text.trim() ? " of " + allEntries.length + " waiting in the inbox" : " waiting in the inbox");
-    if (allEntries.length === 0) {
-      var empty = document.createElement("div");
-      empty.className = "empty-state";
-      empty.textContent = "Nothing waiting in PaperNote's inbox.";
-      el.content.appendChild(empty);
-      return;
-    }
-    if (entries.length === 0) {
-      var noMatch = document.createElement("div");
-      noMatch.className = "empty-state";
-      noMatch.textContent = "No inbox entries match your search.";
-      el.content.appendChild(noMatch);
-      return;
-    }
-    entries.forEach(function (entry) { el.content.appendChild(renderUntaggedRow(entry)); });
   }
 
   // Card shows filename, type badge, and captured date; clicking it selects
@@ -2560,22 +2535,25 @@
     thumbSlot.textContent = "No preview available for this file type.";
   }
 
-  // Dispatches to whichever center-panel view is currently active — the
-  // normal OneDrive note list, or the Untagged inbox list. Every call site
-  // that used to call renderNoteList() directly now goes through this, so
-  // an in-progress Untagged view survives an unrelated Sync/sort/search
-  // change instead of silently reverting to the note list.
-  function renderMainList() {
-    if (untaggedState.active) renderUntaggedList();
-    else renderNoteList();
-  }
-
+  // The single center-panel list, real notes and Untagged entries both —
+  // reworked 2026-08-07 so Untagged is revealed by search/filters exactly
+  // the way tagged notes already are, no separate view or click to switch
+  // into it first. Untagged entries are appended after the sorted note
+  // list rather than interleaved into one shared sort order: they don't
+  // carry the same fields (no driveItemId/tag/modifiedAt), so building one
+  // comparator that treats both shapes correctly wasn't worth it for what
+  // this needed to accomplish. Keyboard Up/Down/Enter navigation
+  // (visibleNotes/selectedIndex) still only addresses real notes — Untagged
+  // cards stay mouse-click-only via selectedUntaggedCardEl, same as
+  // before, since Enter/Open assume note-shaped objects (driveItemId,
+  // webUrl) that entries don't have.
   function renderNoteList() {
     el.content.innerHTML = "";
     selectedCardEl = null;
     selectedIndex = -1;
     pillFocus = null;
     visibleNotes = [];
+    selectedUntaggedCardEl = null;
     renderPreview(null);
     var acctData = activeAccountData();
     if (!acctData) {
@@ -2587,20 +2565,16 @@
       return;
     }
     var words = searchWords();
-    var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType && !searchState.notesOnly;
-    var notes = noFilterActive ? [] : acctData.notes.filter(function (n) {
-      var matchesText = matchesSearchWords(n.filename, words);
-      var matchesTag = !searchState.tag || n.tag === searchState.tag;
-      var matchesType = !searchState.fileType || noteFileType(n) === searchState.fileType;
-      var matchesNotes = !searchState.notesOnly || isInNotesFolderNote(n);
-      return matchesText && matchesTag && matchesType && matchesNotes;
-    }).sort(compareNotes);
+    var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType && !searchState.notesOnly && !searchState.untaggedOnly;
+    var notes = noFilterActive ? [] : acctData.notes.filter(function (n) { return noteMatchesFilters(n, words); }).sort(compareNotes);
+    var untagged = noFilterActive ? [] : untaggedEntriesMatchingSearch();
 
-    renderSidebarTotal(notes.length, acctData.notes.length);
-    if (notes.length === 0) {
+    var totalKnown = acctData.notes.length + (untaggedState.entries ? untaggedState.entries.length : 0);
+    renderSidebarTotal(notes.length + untagged.length, totalKnown);
+    if (notes.length === 0 && untagged.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = acctData.notes.length === 0 ? "No notes captured yet."
+      empty.textContent = totalKnown === 0 ? "No notes captured yet."
         : noFilterActive ? "Type a search or select a filter to see notes."
         : "No notes match your search.";
       el.content.appendChild(empty);
@@ -2608,6 +2582,7 @@
     }
     visibleNotes = notes;
     notes.forEach(function (n, i) { el.content.appendChild(renderNoteRow(n, i)); });
+    untagged.forEach(function (entry) { el.content.appendChild(renderUntaggedRow(entry)); });
   }
 
   // Shows the search box's clear (X) button only when there's actually
@@ -3211,7 +3186,7 @@
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesGroup();
-      renderMainList();
+      renderNoteList();
     });
     el.searchClearBtn.addEventListener("click", function () {
       el.searchInput.value = "";
@@ -3220,7 +3195,7 @@
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesGroup();
-      renderMainList();
+      renderNoteList();
       el.searchInput.focus();
     });
     el.searchInput.addEventListener("keydown", function (e) {
@@ -3231,8 +3206,8 @@
         renderTagSidebar();
         renderTypeSidebar();
         renderNotesGroup();
-        renderMainList();
-      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType || searchState.notesOnly || untaggedState.active)) {
+        renderNoteList();
+      } else if (e.key === "Escape" && (searchState.tag || searchState.fileType || searchState.notesOnly || searchState.untaggedOnly)) {
         // Third Escape in the sequence (focus search, clear text, clear
         // filters) — only reached once the search box is both focused and
         // already empty, so there's nothing left to clear but the
@@ -3240,11 +3215,11 @@
         searchState.tag = null;
         searchState.fileType = null;
         searchState.notesOnly = false;
-        untaggedState.active = false;
+        searchState.untaggedOnly = false;
         renderTagSidebar();
         renderTypeSidebar();
         renderNotesGroup();
-        renderMainList();
+        renderNoteList();
       } else if (e.key === "ArrowDown" && el.backdrop.hidden && visibleNotes.length > 0) {
         // Hand off from the search box into the center panel, always
         // starting at the top card regardless of any prior selection.
@@ -3340,7 +3315,7 @@
     el.sortArrowBtn.addEventListener("click", function () {
       sortState.ascending = !sortState.ascending;
       renderSortControl();
-      renderMainList();
+      renderNoteList();
     });
     el.sortCycleBtn.addEventListener("click", function (e) {
       var word = e.target.closest(".sort-word");
@@ -3353,7 +3328,7 @@
         sortState.ascending = SORT_MODE_DEFAULT_ASCENDING[mode];
       }
       renderSortControl();
-      renderMainList();
+      renderNoteList();
     });
 
     el.syncBtn.addEventListener("click", function () { runSync(); });
