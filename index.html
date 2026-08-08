@@ -3207,18 +3207,6 @@
 
     el.searchInput.addEventListener("input", function () {
       searchState.text = el.searchInput.value;
-      // Auto-select Untagged the moment a search actually matches
-      // something there, as long as no other filter is currently active —
-      // otherwise a correct, live match count sitting next to an
-      // unselected row was a dead end, nothing in the center panel
-      // reflected it unless Untagged already happened to be the active
-      // view (Ron's report, 2026-08-07). Only fires on a real, non-empty
-      // query; an empty search always has a nonzero Untagged count (the
-      // full inbox), which isn't a "match" worth auto-selecting for.
-      if (!untaggedState.active && !searchState.tag && !searchState.fileType && !searchState.notesOnly &&
-          searchWords().length > 0 && untaggedEntriesMatchingSearch().length > 0) {
-        untaggedState.active = true;
-      }
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
