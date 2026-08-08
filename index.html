@@ -2192,15 +2192,18 @@
     });
   }
 
-  // Notes + Untagged group — the sidebar's first section, two independent
-  // toggles sharing one header/list container. Both are ordinary
-  // AND-combinable filters now (reworked 2026-08-07): Untagged used to be
+  // Notes + Untagged group — the sidebar's first section, two toggles
+  // sharing one header/list container. Both are AND-combinable with the
+  // tag/type/search filters (reworked 2026-08-07): Untagged used to be
   // mutually exclusive with everything else, swapping the whole center
   // panel to a different data source, but that meant a search alone never
   // revealed a matching inbox entry the way it already reveals a matching
   // tagged note. Same click-to-filter, click-again-to-clear interaction
   // and live count either way. Rebuilt together by renderNotesGroup()
-  // since they share one DOM container.
+  // since they share one DOM container. Untagged and Tagged are mutually
+  // exclusive of EACH OTHER, though (Ron's request, 2026-08-08): turning
+  // one on clears the other, since a note can't be both at once — either
+  // can still be off simultaneously, just never both on.
   function buildNotesRow() {
     var acctData = activeAccountData();
     var words = searchWords();
@@ -2224,6 +2227,7 @@
     row.appendChild(countSpan);
     row.addEventListener("click", function () {
       searchState.notesOnly = !searchState.notesOnly;
+      if (searchState.notesOnly) searchState.untaggedOnly = false;
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesGroup();
@@ -2367,11 +2371,12 @@
     return entries.filter(function (e) { return noteMatchesFilters(e, words); });
   }
 
-  // Second row in the same Notes group container — an ordinary
-  // AND-combinable toggle now (reworked 2026-08-07), exactly like Tagged
-  // next to it: click filters down to just Untagged entries, click again
-  // clears back to including everything. No longer clears other filters or
-  // swaps the center panel to a separate view.
+  // Second row in the same Notes group container — an AND-combinable
+  // toggle with the tag/type/search filters (reworked 2026-08-07), exactly
+  // like Tagged next to it: click filters down to just Untagged entries,
+  // click again clears back to including everything. Does not swap the
+  // center panel to a separate view. Mutually exclusive with Tagged
+  // specifically, though — see buildNotesRow's comment.
   function buildUntaggedRow() {
     var row = document.createElement("div");
     row.className = "tag-sidebar-item" + (searchState.untaggedOnly ? " active" : "");
@@ -2382,6 +2387,7 @@
     row.appendChild(countSpan);
     row.addEventListener("click", function () {
       searchState.untaggedOnly = !searchState.untaggedOnly;
+      if (searchState.untaggedOnly) searchState.notesOnly = false;
       renderTagSidebar();
       renderTypeSidebar();
       renderNotesGroup();
