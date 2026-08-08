@@ -613,27 +613,26 @@
   var SORT_MODE_DEFAULT_ASCENDING = { name: true, modified: false, added: false };
   var sortState = { mode: "name", ascending: true };
 
-  function compareNotes(a, b) {
-    var mult = sortState.ascending ? 1 : -1;
-    if (sortState.mode === "name") {
-      return mult * a.filename.localeCompare(b.filename, undefined, { sensitivity: "base" });
-    }
-    var field = sortState.mode === "modified" ? "modifiedAt" : "capturedAt";
-    return mult * (new Date(a[field] || 0) - new Date(b[field] || 0));
+  // Shared by real notes and Untagged (PaperNote inbox) entries — fully
+  // interleaved into one sorted list (Ron's call, 2026-08-08, superseding
+  // the earlier "Untagged sorts within its own trailing block" version).
+  // Untagged entries have no modifiedAt (they're unfiled inbox items, not
+  // files with edit history) — capturedAt is the only date they carry, so
+  // Modified sort falls back to it for them specifically, the same way
+  // Added sort already uses it, while a real note's genuinely-empty
+  // Modified value still sorts as epoch-0 rather than silently borrowing
+  // capturedAt.
+  function itemSortDate(item) {
+    if (item._isUntagged) return item.capturedAt;
+    return sortState.mode === "modified" ? item.modifiedAt : item.capturedAt;
   }
 
-  // Untagged (PaperNote inbox) entries have no modifiedAt — capturedAt is
-  // the only date they carry, so Modified sort falls back to it the same
-  // way Added sort already uses it (Ron's call, 2026-08-08). Kept as a
-  // separate comparator rather than branching compareNotes, since real
-  // notes should still show a genuinely empty Modified value as epoch-0,
-  // not silently borrow capturedAt the way Untagged entries now do.
-  function compareUntagged(a, b) {
+  function compareItems(a, b) {
     var mult = sortState.ascending ? 1 : -1;
     if (sortState.mode === "name") {
       return mult * a.filename.localeCompare(b.filename, undefined, { sensitivity: "base" });
     }
-    return mult * (new Date(a.capturedAt || 0) - new Date(b.capturedAt || 0));
+    return mult * (new Date(itemSortDate(a) || 0) - new Date(itemSortDate(b) || 0));
   }
 
   // Splits the search box text into words on whitespace, lowercased, empty
@@ -722,19 +721,15 @@
   }
   var selectedCardEl = null; // currently selected note-card in the center panel, drives the right-panel preview
   var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
-  var visibleNotes = []; // the currently filtered/sorted note list, in the same order as the rendered cards
-  // Untagged has its own separate selection state rather than reusing
-  // selectedCardEl/selectedIndex/visibleNotes above — those three are
-  // tightly coupled to the Up/Down/Enter keyboard navigation for real
-  // notes, and entries here aren't notes (no driveItemId, no tag, no
-  // folderPath), so mixing them in risked breaking that navigation for no
-  // real benefit. Click-to-select only for entries, no keyboard nav, matching
-  // what was actually asked for. Shares previewRequestSeq above with the
-  // regular note preview, since both card types can now appear in the same
-  // rendered list (renderNoteList) and a stale response from either
+  var visibleNotes = []; // the currently filtered/sorted note list (real notes and Untagged entries interleaved), in the same order as the rendered cards
+  // Untagged entries share selectedCardEl/selectedIndex/visibleNotes with
+  // real notes as of 2026-08-08 (Ron's call) — fully interleaved into the
+  // same sort order and the same Up/Down/Enter keyboard navigation, via
+  // the _isUntagged flag (see selectNoteAtIndex). previewRequestSeq above
+  // is shared with the regular note preview too, since both card types can
+  // appear in the same rendered list and a stale response from either
   // preview path should still be superseded by whichever selection
   // happened more recently.
-  var selectedUntaggedCardEl = null;
   var untaggedBlobCache = {}; // entry.id -> data: URL, in-memory only, never persisted
   var selectedIndex = -1; // index into visibleNotes of the selected card, -1 for none
   // Left/Right on a selected note card cycle a keyboard-only "which action
@@ -2410,11 +2405,13 @@
     return row;
   }
 
-  // Card shows filename, type badge, and captured date; clicking it selects
-  // the entry and drives the right-panel preview (renderUntaggedPreview),
-  // the same click-to-select pattern the regular note cards already use,
-  // just against a separate selection variable (selectedUntaggedCardEl).
-  function renderUntaggedRow(entry) {
+  // Card shows an "Untagged" badge (so it reads as unfiled even mixed in
+  // with real notes, Ron's call 2026-08-08), a type badge, and a captured
+  // date. index is this entry's position in the merged visibleNotes list —
+  // clicking it goes through the same selectNoteAtIndex real note cards
+  // use, rather than a separate click handler, now that both card types
+  // share one selection/keyboard-nav system.
+  function renderUntaggedRow(entry, index) {
     var row = document.createElement("div");
     row.className = "note-row";
 
@@ -2428,6 +2425,10 @@
 
     var metaRow = document.createElement("div");
     metaRow.className = "note-meta-row";
+    var untaggedChip = document.createElement("span");
+    untaggedChip.className = "note-type-chip";
+    untaggedChip.textContent = "Untagged";
+    metaRow.appendChild(untaggedChip);
     var typeChip = document.createElement("span");
     typeChip.className = "note-type-chip";
     typeChip.textContent = entry.type === "photo" ? "Photo" : entry.type === "document" ? "Document" : "Text";
@@ -2440,10 +2441,7 @@
     card.appendChild(captured);
 
     card.addEventListener("click", function () {
-      if (selectedUntaggedCardEl) selectedUntaggedCardEl.classList.remove("selected");
-      card.classList.add("selected");
-      selectedUntaggedCardEl = card;
-      renderUntaggedPreview(entry);
+      selectNoteAtIndex(index);
     });
 
     row.appendChild(card);
@@ -2558,25 +2556,22 @@
   // The single center-panel list, real notes and Untagged entries both —
   // reworked 2026-08-07 so Untagged is revealed by search/filters exactly
   // the way tagged notes already are, no separate view or click to switch
-  // into it first. Untagged entries are sorted with their own comparator
-  // (compareUntagged) and appended after the sorted note list rather than
-  // interleaved into one shared sort order (Ron's call, 2026-08-08): they
-  // don't carry the same fields (no driveItemId/tag/modifiedAt), so
-  // building one comparator that treats both shapes correctly wasn't worth
-  // it for what this needed to accomplish — the Sort control still applies
-  // to Untagged's own block, just not merged across both blocks. Keyboard
-  // Up/Down/Enter navigation
-  // (visibleNotes/selectedIndex) still only addresses real notes — Untagged
-  // cards stay mouse-click-only via selectedUntaggedCardEl, same as
-  // before, since Enter/Open assume note-shaped objects (driveItemId,
-  // webUrl) that entries don't have.
+  // into it first, then reworked again 2026-08-08 (Ron's call) to fully
+  // interleave the two into one shared sort order via compareItems,
+  // instead of sorting Untagged within its own trailing block. Keyboard
+  // Up/Down/Enter navigation (visibleNotes/selectedIndex) now addresses
+  // both shapes: selectNoteAtIndex branches on _isUntagged to call the
+  // right preview function, Enter no-ops on an Untagged selection (see the
+  // keydown handler), and Left/Right pill-focus cycling is skipped for
+  // Untagged entries since they have no Open/File Location pills to
+  // cycle through. selectedUntaggedCardEl is gone — Untagged cards are
+  // selected the same way note cards are now.
   function renderNoteList() {
     el.content.innerHTML = "";
     selectedCardEl = null;
     selectedIndex = -1;
     pillFocus = null;
     visibleNotes = [];
-    selectedUntaggedCardEl = null;
     renderPreview(null);
     var acctData = activeAccountData();
     if (!acctData) {
@@ -2589,12 +2584,13 @@
     }
     var words = searchWords();
     var noFilterActive = words.length === 0 && !searchState.tag && !searchState.fileType && !searchState.notesOnly && !searchState.untaggedOnly;
-    var notes = noFilterActive ? [] : acctData.notes.filter(function (n) { return noteMatchesFilters(n, words); }).sort(compareNotes);
-    var untagged = noFilterActive ? [] : untaggedEntriesMatchingSearch().sort(compareUntagged);
+    var notes = noFilterActive ? [] : acctData.notes.filter(function (n) { return noteMatchesFilters(n, words); });
+    var untagged = noFilterActive ? [] : untaggedEntriesMatchingSearch();
+    var merged = notes.concat(untagged).sort(compareItems);
 
     var totalKnown = acctData.notes.length + (untaggedState.entries ? untaggedState.entries.length : 0);
-    renderSidebarTotal(notes.length + untagged.length, totalKnown);
-    if (notes.length === 0 && untagged.length === 0) {
+    renderSidebarTotal(merged.length, totalKnown);
+    if (merged.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty-state";
       empty.textContent = totalKnown === 0 ? "No notes captured yet."
@@ -2603,9 +2599,10 @@
       el.content.appendChild(empty);
       return;
     }
-    visibleNotes = notes;
-    notes.forEach(function (n, i) { el.content.appendChild(renderNoteRow(n, i)); });
-    untagged.forEach(function (entry) { el.content.appendChild(renderUntaggedRow(entry)); });
+    visibleNotes = merged;
+    merged.forEach(function (item, i) {
+      el.content.appendChild(item._isUntagged ? renderUntaggedRow(item, i) : renderNoteRow(item, i));
+    });
   }
 
   // Shows the search box's clear (X) button only when there's actually
@@ -2691,8 +2688,12 @@
     return row;
   }
 
-  // Selects a note card by its position in visibleNotes — shared by clicking
-  // a card directly and by the Up/Down arrow-key navigation below.
+  // Selects a card by its position in visibleNotes (real notes and
+  // Untagged entries interleaved) — shared by clicking a card directly and
+  // by the Up/Down arrow-key navigation below. Branches on _isUntagged to
+  // call the matching preview function, since Untagged entries aren't
+  // note-shaped (renderPreview assumes driveItemId/tag/webUrl they don't
+  // have).
   function selectNoteAtIndex(i) {
     if (visibleNotes.length === 0) return;
     i = Math.max(0, Math.min(i, visibleNotes.length - 1));
@@ -2704,7 +2705,9 @@
     card.classList.add("selected");
     selectedCardEl = card;
     card.scrollIntoView({ block: "nearest" });
-    renderPreview(visibleNotes[i]);
+    var item = visibleNotes[i];
+    if (item._isUntagged) renderUntaggedPreview(item);
+    else renderPreview(item);
   }
 
   // Applies pillFocus's current value as a visible focus ring on whichever
@@ -3298,13 +3301,17 @@
     // Open -> File Location -> back to notecard (and the reverse with
     // Left), skipping File Location entirely for notes that don't have it
     // (iPhone, or an account with no local sync root). Purely a keyboard
-    // focus indicator — Enter below is what actually acts on it.
+    // focus indicator — Enter below is what actually acts on it. No-ops on
+    // an Untagged selection (Ron's call, 2026-08-08) — Untagged entries
+    // have no Open/File Location pills at all, so there's nothing to
+    // cycle to.
     document.addEventListener("keydown", function (e) {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       if (!el.backdrop.hidden) return;
       var tag = document.activeElement && document.activeElement.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (selectedIndex === -1 || !visibleNotes[selectedIndex]) return;
+      if (visibleNotes[selectedIndex]._isUntagged) return;
       e.preventDefault();
       var hasFileLocation = !!document.getElementById("previewFileLocPill");
       var order = hasFileLocation ? [null, "open", "location"] : [null, "open"];
@@ -3318,13 +3325,17 @@
     // has always triggered (a .url shortcut's real site if it resolves,
     // otherwise the OneDrive document/local file); "location" is new,
     // triggering File Location instead — same guards as the arrow-key
-    // navigation above.
+    // navigation above. No-ops on an Untagged selection (Ron's call,
+    // 2026-08-08): Untagged entries have no Open action at all — the
+    // preview already shown by selecting them is all there is, since
+    // filing one happens in PaperFile, not here.
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Enter") return;
       if (!el.backdrop.hidden) return;
       var tag = document.activeElement && document.activeElement.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (selectedIndex === -1 || !visibleNotes[selectedIndex]) return;
+      if (visibleNotes[selectedIndex]._isUntagged) return;
       e.preventDefault();
       var note = visibleNotes[selectedIndex];
       if (pillFocus === "location") {
