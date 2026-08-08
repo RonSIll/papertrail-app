@@ -668,15 +668,17 @@
   // of this fall out naturally rather than needing type-specific branches:
   // a tag filter excludes them because n.tag is undefined, notesOnly
   // excludes them because isInNotesFolderNote safely returns false with no
-  // folderPath to check. The file-type filter (Documents/Images/etc.) is
-  // deliberately scoped to real notes only — an untagged entry's own type
-  // (photo/text/document) doesn't map onto those five extension-based
-  // categories, so type-filtering an untagged entry is explicitly excluded
-  // rather than left to an accidental extension-string coincidence.
+  // folderPath to check. The file-type filter (Documents/Images/etc.) DOES
+  // apply to Untagged entries now (Ron's call, 2026-08-08, superseding the
+  // 2026-08-07 blanket exclusion) — untaggedFileType maps an entry's own
+  // photo/document/text kind onto the same five categories real notes use.
   function noteMatchesFilters(n, words) {
     if (!matchesSearchWords(n.filename, words)) return false;
     if (searchState.tag && n.tag !== searchState.tag) return false;
-    if (searchState.fileType && (n._isUntagged || noteFileType(n) !== searchState.fileType)) return false;
+    if (searchState.fileType) {
+      var type = n._isUntagged ? untaggedFileType(n) : noteFileType(n);
+      if (type !== searchState.fileType) return false;
+    }
     if (searchState.notesOnly && !isInNotesFolderNote(n)) return false;
     if (searchState.untaggedOnly && !n._isUntagged) return false;
     return true;
@@ -718,6 +720,18 @@
     if (note.type === "folder") return "Folders";
     var m = /\.([a-z0-9]+)$/i.exec(note.filename);
     return m ? (EXT_TO_FILE_TYPE[m[1].toLowerCase()] || null) : null;
+  }
+
+  // Maps an Untagged (PaperNote inbox) entry onto the same five Filters
+  // categories real notes use (Ron's call, 2026-08-08). PaperNote's inbox
+  // only ever produces three kinds of entry — photo, document, or plain
+  // text — so Folders, Links, and Media can never have an Untagged match;
+  // that's an accurate reflection of what an inbox item can be, not a gap
+  // in this mapping. "text" counts as Documents, same as how a real note's
+  // own .txt/.md file already counts as a Document.
+  function untaggedFileType(entry) {
+    if (entry.type === "photo") return "Images";
+    return "Documents"; // "document" and the "text" fallback both land here
   }
   var selectedCardEl = null; // currently selected note-card in the center panel, drives the right-panel preview
   var previewRequestSeq = 0; // guards against a stale thumbnail fetch overwriting a newer selection
@@ -2164,6 +2178,11 @@
   // categories, even at a count of 0, matching the tag list's own
   // zero-count precedent (e.g. a tag can already show "0" today). Same
   // click-to-filter, click-again-to-clear interaction as the tag list.
+  // Counts include matching Untagged entries too (Ron's call, 2026-08-08),
+  // so the number next to a button matches what actually shows up when you
+  // click it. Untagged's own loop below isn't gated on searchState.untaggedOnly
+  // the way the real-notes loop is — untaggedOnly only restricts whether
+  // real notes show, it doesn't restrict Untagged entries themselves.
   function renderTypeSidebar() {
     var acctData = activeAccountData();
     el.typeList.innerHTML = "";
@@ -2181,6 +2200,13 @@
         counts[type] = (counts[type] || 0) + 1;
       });
     }
+    (untaggedState.entries || []).forEach(function (e) {
+      if (!matchesSearchWords(e.filename, words)) return;
+      if (searchState.tag) return; // Untagged entries have no tag, never match an active tag filter
+      if (searchState.notesOnly) return; // Untagged entries never match the Tagged/notes-folder filter
+      var type = untaggedFileType(e);
+      counts[type] = (counts[type] || 0) + 1;
+    });
 
     FILE_TYPE_CATEGORIES.forEach(function (type) {
       var row = document.createElement("div");
