@@ -2323,6 +2323,22 @@
     });
   }
 
+  // Untagged entries filtered by the current filename search — reused by
+  // both the sidebar count (buildUntaggedRow) and the list itself
+  // (renderUntaggedList) so they never disagree. Typing in the search box
+  // used to unconditionally exit Untagged and search the (unrelated)
+  // Tagged note list instead, since entries weren't filterable at all —
+  // fixed 2026-08-07 after Ron found "remote" turned up nothing while
+  // looking at a literal "Tv remote.jpg" entry. Reuses the exact same
+  // searchWords()/matchesSearchWords() matching real notes already use, so
+  // quoted-phrase search works identically here too.
+  function untaggedEntriesMatchingSearch() {
+    var entries = untaggedState.entries || [];
+    var words = searchWords();
+    if (!words.length) return entries;
+    return entries.filter(function (e) { return matchesSearchWords(e.filename, words); });
+  }
+
   // Second row in the same Notes group container — same tag-sidebar-item/
   // tag-count styling as the Notes row next to it, but mutually EXCLUSIVE
   // with the tag/type/Notes filters rather than AND-combined: turning
@@ -2335,7 +2351,7 @@
     row.appendChild(document.createTextNode("Untagged"));
     var countSpan = document.createElement("span");
     countSpan.className = "tag-count";
-    countSpan.textContent = untaggedState.entries ? untaggedState.entries.length : "";
+    countSpan.textContent = untaggedState.entries ? untaggedEntriesMatchingSearch().length : "";
     row.appendChild(countSpan);
     row.addEventListener("click", function () {
       untaggedState.active = !untaggedState.active;
@@ -2378,13 +2394,22 @@
       el.sidebarTotal.textContent = "";
       return;
     }
-    var entries = untaggedState.entries || [];
-    el.sidebarTotal.textContent = entries.length === 0 ? "" : entries.length + " waiting in the inbox";
-    if (entries.length === 0) {
+    var allEntries = untaggedState.entries || [];
+    var entries = untaggedEntriesMatchingSearch();
+    el.sidebarTotal.textContent = allEntries.length === 0 ? "" :
+      entries.length + (searchState.text.trim() ? " of " + allEntries.length + " waiting in the inbox" : " waiting in the inbox");
+    if (allEntries.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty-state";
       empty.textContent = "Nothing waiting in PaperNote's inbox.";
       el.content.appendChild(empty);
+      return;
+    }
+    if (entries.length === 0) {
+      var noMatch = document.createElement("div");
+      noMatch.className = "empty-state";
+      noMatch.textContent = "No inbox entries match your search.";
+      el.content.appendChild(noMatch);
       return;
     }
     entries.forEach(function (entry) { el.content.appendChild(renderUntaggedRow(entry)); });
@@ -3182,7 +3207,6 @@
 
     el.searchInput.addEventListener("input", function () {
       searchState.text = el.searchInput.value;
-      untaggedState.active = false;
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
@@ -3192,7 +3216,6 @@
     el.searchClearBtn.addEventListener("click", function () {
       el.searchInput.value = "";
       searchState.text = "";
-      untaggedState.active = false;
       updateSearchClearBtn();
       renderTagSidebar();
       renderTypeSidebar();
@@ -3204,7 +3227,6 @@
       if (e.key === "Escape" && el.searchInput.value) {
         el.searchInput.value = "";
         searchState.text = "";
-        untaggedState.active = false;
         updateSearchClearBtn();
         renderTagSidebar();
         renderTypeSidebar();
